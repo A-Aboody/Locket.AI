@@ -1,0 +1,18 @@
+# Database Dependencies
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+alembic==1.13.0
+
+# Security
+bcrypt==4.1.1
+
+# Configuration
+python-dotenv==1.0.0
+
+# For database migrations
+alembic==1.13.0
+
+# pip install sqlalchemy
+# pip install psycopg2-binary
+# pip install python-dotenv
+# pip install bcrypt
