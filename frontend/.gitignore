@@ -1,4 +1,3 @@
-# Logs
 logs
 *.log
 npm-debug.log*
@@ -7,18 +6,46 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
+node_modules/
 
-# Editor directories and files
+dist/
+dist-ssr/
+release/
+build/
+out/
+*.asar
+
+*.dll
+*.pak
+*.bin
+*.exe
+*.dat
+
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+*.db
+venv/
+env/
+*.egg-info/
+
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+
+.DS_Store
+
 .vscode/*
 !.vscode/extensions.json
-.idea
-.DS_Store
+.idea/
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+
+*.tsbuildinfo

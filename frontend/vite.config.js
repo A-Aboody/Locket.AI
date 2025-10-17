@@ -5,4 +5,12 @@ import tsconfigPaths from "vite-tsconfig-paths"
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tsconfigPaths()],
+  base: './',
+  server: {
+    port: 5173,
+  },
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+  },
 })
