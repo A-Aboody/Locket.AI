@@ -18,6 +18,7 @@
   },
   "homepage": "https://github.com/Uricero/senior-design-document-ai-retrieval-agent#readme",
   "dependencies": {
+    "react-router-dom": "^7.9.4",
     "vite": "^7.1.9"
   }
 }
