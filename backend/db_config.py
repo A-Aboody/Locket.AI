@@ -21,6 +21,12 @@ if not DATABASE_URL:
         "Please create a .env file with DATABASE_URL=postgresql://user:pass@localhost:5432/dbname"
     )
 
+if DATABASE_URL.startswith("postgresql://") or DATABASE_URL.startswith("postgres://"):
+    # Replace with psycopg dialect (version 3)
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
+    print(f"[INFO] Auto-converted DATABASE_URL to use psycopg (v3) dialect")
+
 # Create engine with appropriate settings
 if "sqlite" in DATABASE_URL:
     # SQLite configuration (for development/testing)

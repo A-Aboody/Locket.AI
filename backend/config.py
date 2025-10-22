@@ -32,10 +32,20 @@ class Config:
     ALGORITHM = "HS256"
     HOST = os.getenv("HOST", "0.0.0.0")
     PORT = int(os.getenv("PORT", "8000"))
-    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
+    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:5174").split(",")
+    
+    # Document Upload Settings
     MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "100"))
     UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
-    ALLOWED_EXTENSIONS = set(os.getenv("ALLOWED_EXTENSIONS", "pdf,doc,docx,xls,xlsx,txt").split(","))
+    ALLOWED_EXTENSIONS = {'.pdf', '.txt', '.docx', '.doc'}
+    
+    # Create upload directory if it doesn't exist
+    @classmethod
+    def ensure_upload_dir(cls):
+        """Create upload directory if it doesn't exist"""
+        if not os.path.exists(cls.UPLOAD_DIR):
+            os.makedirs(cls.UPLOAD_DIR)
+            print(f"[INFO] Created upload directory: {cls.UPLOAD_DIR}")
     
     @classmethod
     def display_info(cls):
@@ -47,9 +57,21 @@ class Config:
         print(f"Database:          {cls.DATABASE_URL.split('@')[1] if '@' in cls.DATABASE_URL else 'Not configured'}")
         print(f"Secret Key Set:    {'Yes' if cls.SECRET_KEY else 'No'}")
         print(f"Using Key:         {'DEV_SECRET_KEY' if cls.ENVIRONMENT != 'production' else 'PROD_SECRET_KEY'}")
+        print(f"Upload Directory:  {cls.UPLOAD_DIR}")
+        print(f"Max Upload Size:   {cls.MAX_UPLOAD_SIZE_MB} MB")
         print("="*60 + "\n")
 
 config = Config()
 SECRET_KEY = config.SECRET_KEY
 DATABASE_URL = config.DATABASE_URL
 ENVIRONMENT = config.ENVIRONMENT
+
+# Ensure upload directory exists on startup
+config.ensure_upload_dir()
+
+# Ensure upload directory exists on startup
+try:
+    config.ensure_upload_dir()
+    print("[INFO] Upload directory check complete")
+except Exception as e:
+    print(f"[ERROR] Failed to create upload directory: {e}")

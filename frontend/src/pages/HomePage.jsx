@@ -9,10 +9,20 @@ import {
   VStack,
   HStack,
   Badge,
+  Tabs,
+  TabList,
+  TabPanels,
+  Tab,
+  TabPanel,
 } from '@chakra-ui/react';
+import DocumentUpload from '../custom_components/DocumentUpload';
+import DocumentList from '../custom_components/DocumentList';
+import DocumentViewer from '../custom_components/DocumentViewer';
 
 const HomePage = () => {
   const [user, setUser] = useState(null);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [viewingDocumentId, setViewingDocumentId] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -33,6 +43,19 @@ const HomePage = () => {
     navigate('/auth');
   };
 
+  const handleUploadSuccess = () => {
+    // Trigger document list refresh
+    setRefreshTrigger(prev => prev + 1);
+  };
+
+  const handleViewDocument = (documentId) => {
+    setViewingDocumentId(documentId);
+  };
+
+  const handleCloseViewer = () => {
+    setViewingDocumentId(null);
+  };
+
   if (!user) {
     return null;
   }
@@ -41,12 +64,13 @@ const HomePage = () => {
     <Box minH="100vh" bg="gray.100" py={8}>
       <Container maxW="container.xl">
         <VStack spacing={6} align="stretch">
+          {/* Header */}
           <Box bg="white" p={6} rounded="lg" shadow="md">
             <HStack justify="space-between">
               <Box>
-                <Heading size="lg">Welcome, {user.username}!</Heading>
+                <Heading size="lg">Document Retrieval System</Heading>
                 <HStack mt={2}>
-                  <Text color="gray.600">{user.email}</Text>
+                  <Text color="gray.600">Welcome, {user.username}!</Text>
                   <Badge colorScheme={user.role === 'admin' ? 'purple' : 'blue'}>
                     {user.role}
                   </Badge>
@@ -58,12 +82,33 @@ const HomePage = () => {
             </HStack>
           </Box>
 
-          <Box bg="white" p={8} rounded="lg" shadow="md" minH="400px">
-            <Heading size="md" mb={4}>Dashboard</Heading>
-            <Text color="gray.600">
-              Home page. Content will be added here later.
-            </Text>
-          </Box>
+          {/* Main Content */}
+          {viewingDocumentId ? (
+            <DocumentViewer
+              documentId={viewingDocumentId}
+              onClose={handleCloseViewer}
+            />
+          ) : (
+            <Tabs colorScheme="blue" variant="enclosed">
+              <TabList>
+                <Tab>My Documents</Tab>
+                <Tab>Upload</Tab>
+              </TabList>
+
+              <TabPanels>
+                <TabPanel p={0} pt={6}>
+                  <DocumentList
+                    refreshTrigger={refreshTrigger}
+                    onViewDocument={handleViewDocument}
+                  />
+                </TabPanel>
+
+                <TabPanel p={0} pt={6}>
+                  <DocumentUpload onUploadSuccess={handleUploadSuccess} />
+                </TabPanel>
+              </TabPanels>
+            </Tabs>
+          )}
         </VStack>
       </Container>
     </Box>

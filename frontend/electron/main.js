@@ -16,7 +16,7 @@ const BACKEND_PATH = isDev
   : path.join(process.resourcesPath, 'backend');
 
 const VITE_DEV_SERVER = 'http://localhost:5173';
-const BACKEND_URL = 'http://localhost:8000';
+const BACKEND_URL = 'http://localhost:8001';
 
 function getPythonPath() {
   if (isDev) {
