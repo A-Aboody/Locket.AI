@@ -3,10 +3,10 @@ CRUD operations for database
 """
 
 import bcrypt
-from sqlalchemy.orm import Session
-from database_models import User, UserRole
+from sqlalchemy.orm import Session, joinedload
+from database_models import User, UserRole, Document
 from schemas import UserRegister
-from typing import Optional
+from typing import Optional, List
 
 
 def hash_password(password: str) -> str:
@@ -87,3 +87,131 @@ def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
         return None
     
     return user
+
+
+# Document CRUD Operations
+
+def create_document(
+    db: Session,
+    filename: str,
+    file_path: str,
+    file_type: str,
+    file_size: int,
+    content: Optional[str],
+    page_count: int,
+    user_id: int
+) -> Document:
+    """
+    Create a new document record
+    
+    Args:
+        db: Database session
+        filename: Original filename
+        file_path: Storage path
+        file_type: MIME type
+        file_size: File size in bytes
+        content: Extracted text content
+        page_count: Number of pages
+        user_id: ID of user who uploaded
+    
+    Returns:
+        Created document object
+    """
+    document = Document(
+        filename=filename,
+        file_path=file_path,
+        file_type=file_type,
+        file_size=file_size,
+        content=content,
+        page_count=page_count,
+        uploaded_by_id=user_id
+    )
+    
+    db.add(document)
+    db.commit()
+    db.refresh(document)
+    
+    return document
+
+
+def get_document_by_id(db: Session, document_id: int) -> Optional[Document]:
+    """Get document by ID with uploader info"""
+    return db.query(Document).options(
+        joinedload(Document.uploaded_by)
+    ).filter(Document.id == document_id).first()
+
+
+def get_user_documents(db: Session, user_id: int, skip: int = 0, limit: int = 100) -> List[Document]:
+    """
+    Get all documents for a specific user
+    
+    Args:
+        db: Database session
+        user_id: User ID
+        skip: Number of records to skip
+        limit: Maximum number of records to return
+    
+    Returns:
+        List of documents
+    """
+    return db.query(Document).options(
+        joinedload(Document.uploaded_by)
+    ).filter(
+        Document.uploaded_by_id == user_id
+    ).order_by(
+        Document.uploaded_at.desc()
+    ).offset(skip).limit(limit).all()
+
+
+def get_all_documents(db: Session, skip: int = 0, limit: int = 100) -> List[Document]:
+    """
+    Get all documents with uploader info
+    
+    Args:
+        db: Database session
+        skip: Number of records to skip
+        limit: Maximum number of records to return
+    
+    Returns:
+        List of all documents
+    """
+    return db.query(Document).options(
+        joinedload(Document.uploaded_by)
+    ).order_by(
+        Document.uploaded_at.desc()
+    ).offset(skip).limit(limit).all()
+
+
+def delete_document(db: Session, document_id: int) -> bool:
+    """
+    Delete a document by ID
+    
+    Args:
+        db: Database session
+        document_id: Document ID
+    
+    Returns:
+        True if deleted successfully
+    """
+    document = get_document_by_id(db, document_id)
+    if document:
+        db.delete(document)
+        db.commit()
+        return True
+    return False
+
+
+def user_owns_document(db: Session, user_id: int, document_id: int) -> bool:
+    """
+    Check if user owns a specific document
+    
+    Args:
+        db: Database session
+        user_id: User ID
+        document_id: Document ID
+    
+    Returns:
+        True if user owns the document
+    """
+    document = get_document_by_id(db, document_id)
+    return document is not None and document.uploaded_by_id == user_id

@@ -16,9 +16,7 @@ import {
   Heading,
 } from '@chakra-ui/react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
-
-const API_BASE_URL = 'http://localhost:8000/api';
+import { authAPI } from '../utils/api';
 
 const AuthForm = () => {
   const [isLoading, setIsLoading] = useState(false);
@@ -42,10 +40,7 @@ const AuthForm = () => {
     setIsLoading(true);
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/auth/login`, {
-        email: loginData.email,
-        password: loginData.password,
-      });
+      const response = await authAPI.login(loginData);
 
       localStorage.setItem('token', response.data.access_token);
       localStorage.setItem('user', JSON.stringify(response.data.user));
@@ -77,7 +72,7 @@ const AuthForm = () => {
     setIsLoading(true);
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/auth/register`, {
+      const response = await authAPI.register({
         username: registerData.username,
         email: registerData.email,
         password: registerData.password,

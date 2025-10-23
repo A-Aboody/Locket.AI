@@ -45,3 +45,57 @@ class Token(BaseModel):
 class Message(BaseModel):
     """Schema for generic message response"""
     message: str
+
+
+# Document Schemas
+
+class DocumentUploadResponse(BaseModel):
+    """Schema for document upload response"""
+    id: int
+    filename: str
+    file_type: str
+    file_size: int
+    uploaded_at: datetime
+    message: str
+    
+    class Config:
+        from_attributes = True
+
+
+class DocumentResponse(BaseModel):
+    """Schema for document metadata response"""
+    id: int
+    filename: str
+    file_type: str
+    file_size: int
+    page_count: int
+    uploaded_at: datetime
+    updated_at: datetime
+    uploaded_by_id: int
+    uploaded_by_username: Optional[str] = None  # Add uploader username
+    
+    class Config:
+        from_attributes = True
+
+
+class DocumentListResponse(BaseModel):
+    """Schema for document list with uploader info"""
+    id: int
+    filename: str
+    file_type: str
+    file_size: int
+    page_count: int
+    uploaded_at: datetime
+    uploader_username: str
+    
+    class Config:
+        from_attributes = True
+
+
+class DocumentContentResponse(BaseModel):
+    """Schema for document content retrieval"""
+    id: int
+    filename: str
+    file_type: str
+    content: str
+    page_count: int

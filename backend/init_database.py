@@ -5,7 +5,7 @@ Only creates tables and initial admin user for first-time setup
 
 import sys
 import bcrypt
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import inspect
 from db_config import engine, get_db_context, test_connection
 from database_models import Base, User, UserRole, Document
@@ -61,7 +61,7 @@ def create_initial_admin(username: str, email: str, password: str, full_name: st
                 hashed_password=hash_password(password),
                 role=UserRole.ADMIN,
                 is_active=True,
-                created_at=datetime.utcnow()
+                created_at=datetime.now(timezone.utc)
             )
             
             db.add(admin)
