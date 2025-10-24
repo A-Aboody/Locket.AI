@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
 import os
 import uuid
+import traceback
 
 from config import config
 from db_config import get_db
@@ -18,7 +19,7 @@ import crud
 import auth
 import document_processing
 from dependencies import get_current_user, require_admin
-from database_models import User, UserRole
+from database_models import User, UserRole, Document
 
 # Create FastAPI app
 app = FastAPI(
@@ -176,6 +177,11 @@ async def upload_document(
     
     Supported formats: PDF, TXT, DOCX, DOC
     """
+    print(f"[DEBUG] Upload started by user: {current_user.username}")
+    print(f"[DEBUG] File: {file.filename}")
+    
+    import search_service
+    
     # Validate file extension
     if not document_processing.is_allowed_file(file.filename, config.ALLOWED_EXTENSIONS):
         raise HTTPException(
@@ -203,7 +209,9 @@ async def upload_document(
     try:
         with open(file_path, "wb") as f:
             f.write(file_content)
+        print(f"[DEBUG] File saved to: {file_path}")
     except Exception as e:
+        print(f"[ERROR] Failed to save file: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to save file: {str(e)}"
@@ -211,8 +219,11 @@ async def upload_document(
     
     # Extract text content
     try:
+        print(f"[DEBUG] Extracting text content...")
         content, page_count = document_processing.process_document(file_path, file.content_type or file_extension)
+        print(f"[DEBUG] Extracted {len(content or '')} characters, {page_count} pages")
     except Exception as e:
+        print(f"[ERROR] Failed to process document: {e}")
         # Clean up file if processing fails
         if os.path.exists(file_path):
             os.remove(file_path)
@@ -221,19 +232,45 @@ async def upload_document(
             detail=f"Failed to process document: {str(e)}"
         )
     
+    # Generate embeddings for search
+    try:
+        print(f"[DEBUG] Generating embeddings...")
+        index_data = search_service.reindex_document(
+            document_id=0,
+            content=content or "",
+            filename=file.filename
+        )
+        embedding = index_data['embedding']
+        content_preview = index_data['content_preview']
+        print(f"[DEBUG] Generated embedding with {len(embedding)} dimensions")
+    except Exception as e:
+        print(f"[WARNING] Failed to generate embeddings: {e}")
+        print(f"[WARNING] {traceback.format_exc()}")
+        embedding = None
+        content_preview = content[:500] if content else ""
+    
     # Create database record
     try:
-        document = crud.create_document(
-            db=db,
+        print(f"[DEBUG] Creating database record...")
+        document = Document(
             filename=file.filename,
             file_path=file_path,
             file_type=file.content_type or file_extension,
             file_size=file_size,
             content=content,
             page_count=page_count,
-            user_id=current_user.id
+            embedding=embedding,
+            content_preview=content_preview,
+            uploaded_by_id=current_user.id
         )
+        
+        db.add(document)
+        db.commit()
+        db.refresh(document)
+        print(f"[DEBUG] Document created with ID: {document.id}")
     except Exception as e:
+        print(f"[ERROR] Failed to create database record: {e}")
+        print(f"[ERROR] {traceback.format_exc()}")
         # Clean up file if database operation fails
         if os.path.exists(file_path):
             os.remove(file_path)
@@ -248,7 +285,7 @@ async def upload_document(
         "file_type": document.file_type,
         "file_size": document.file_size,
         "uploaded_at": document.uploaded_at,
-        "message": "Document uploaded successfully"
+        "message": "Document uploaded and indexed successfully"
     }
 
 
@@ -374,6 +411,144 @@ def delete_document(
     crud.delete_document(db, document_id)
     
     return {"message": "Document deleted successfully"}
+
+
+# Search routes
+
+@app.post("/api/search", response_model=schemas.SearchResponse)
+def search_documents(
+    search_query: schemas.SearchQuery,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Search documents using AI-powered semantic search
+    
+    Supports:
+    - Semantic similarity (understands meaning)
+    - Keyword matching (exact term matches)
+    - Fuzzy matching (handles typos)
+    - Filename relevance
+    """
+    print("\n" + "="*60)
+    print(f"[SEARCH] New search request")
+    print(f"[SEARCH] User: {current_user.username}")
+    print(f"[SEARCH] Query: '{search_query.query}'")
+    print(f"[SEARCH] Min score: {search_query.min_score}")
+    print(f"[SEARCH] Limit: {search_query.limit}")
+    print("="*60)
+    
+    import time
+    import search_service
+    
+    start_time = time.time()
+    
+    try:
+        # Get all documents
+        print(f"[SEARCH] Fetching documents from database...")
+        documents = crud.get_all_documents_for_search(db)
+        print(f"[SEARCH] Found {len(documents)} documents")
+        
+        # Check if any documents have embeddings
+        docs_with_embeddings = sum(1 for doc in documents if doc.get('embedding'))
+        print(f"[SEARCH] Documents with embeddings: {docs_with_embeddings}/{len(documents)}")
+        
+        if docs_with_embeddings == 0:
+            print(f"[WARNING] No documents have embeddings! Search results will be poor.")
+            print(f"[WARNING] Run 'python index_documents.py' to generate embeddings")
+        
+        # Rank by relevance
+        print(f"[SEARCH] Ranking documents by relevance...")
+        ranked_results = search_service.rank_search_results(
+            query=search_query.query,
+            documents=documents,
+            min_score=search_query.min_score
+        )
+        print(f"[SEARCH] Found {len(ranked_results)} results above threshold")
+        
+        # Limit results
+        ranked_results = ranked_results[:search_query.limit]
+        
+        # Calculate search time
+        search_time_ms = (time.time() - start_time) * 1000
+        
+        print(f"[SEARCH] Search completed in {search_time_ms:.2f}ms")
+        print(f"[SEARCH] Returning {len(ranked_results)} results")
+        
+        # Debug: Show top 3 results
+        for i, result in enumerate(ranked_results[:3], 1):
+            print(f"[SEARCH]   {i}. {result['filename']} - Score: {result['relevance_score']:.2%}")
+        
+        print("="*60 + "\n")
+        
+        return {
+            "query": search_query.query,
+            "total_results": len(ranked_results),
+            "results": ranked_results,
+            "search_time_ms": round(search_time_ms, 2)
+        }
+        
+    except Exception as e:
+        print(f"[ERROR] Search failed!")
+        print(f"[ERROR] Exception type: {type(e).__name__}")
+        print(f"[ERROR] Exception message: {str(e)}")
+        print(f"[ERROR] Traceback:")
+        print(traceback.format_exc())
+        print("="*60 + "\n")
+        
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Search failed: {str(e)}"
+        )
+
+
+@app.post("/api/documents/reindex", response_model=schemas.Message)
+def reindex_all_documents(
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Reindex all documents with embeddings (Admin only)
+    
+    This generates AI embeddings for all documents to enable semantic search
+    """
+    print(f"[REINDEX] Starting reindex by {current_user.username}")
+    
+    import search_service
+    
+    documents = db.query(Document).all()
+    print(f"[REINDEX] Found {len(documents)} documents to reindex")
+    
+    indexed_count = 0
+    for doc in documents:
+        try:
+            print(f"[REINDEX] Processing: {doc.filename}...", end=" ")
+            
+            # Generate embedding
+            index_data = search_service.reindex_document(
+                document_id=doc.id,
+                content=doc.content or "",
+                filename=doc.filename
+            )
+            
+            # Update in database
+            crud.update_document_embedding(
+                db=db,
+                document_id=doc.id,
+                embedding=index_data['embedding'],
+                preview=index_data['content_preview']
+            )
+            
+            print("SUCCESS")
+            indexed_count += 1
+        except Exception as e:
+            print(f"FAILED - {e}")
+            continue
+    
+    message = f"Successfully indexed {indexed_count} of {len(documents)} documents"
+    print(f"[REINDEX] {message}")
+    
+    return {"message": message}
 
 
 # Run the application

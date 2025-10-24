@@ -3,7 +3,7 @@ Pydantic schemas for request/response validation
 """
 
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional
+from typing import Optional, List, Dict
 from datetime import datetime
 
 
@@ -72,7 +72,7 @@ class DocumentResponse(BaseModel):
     uploaded_at: datetime
     updated_at: datetime
     uploaded_by_id: int
-    uploaded_by_username: Optional[str] = None  # Add uploader username
+    uploaded_by_username: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -99,3 +99,43 @@ class DocumentContentResponse(BaseModel):
     file_type: str
     content: str
     page_count: int
+
+
+# Search Schemas
+
+class SearchQuery(BaseModel):
+    """Schema for search query"""
+    query: str = Field(..., min_length=1, max_length=500)
+    min_score: Optional[float] = Field(default=0.1, ge=0.0, le=1.0)
+    limit: Optional[int] = Field(default=20, ge=1, le=100)
+
+
+class ScoreBreakdown(BaseModel):
+    """Schema for score breakdown"""
+    semantic: float
+    keyword: float
+    fuzzy: float
+    filename: float
+    total: float
+
+
+class SearchResult(BaseModel):
+    """Schema for individual search result"""
+    id: int
+    filename: str
+    file_type: str
+    file_size: int
+    page_count: int
+    uploaded_at: datetime
+    uploaded_by_username: str
+    relevance_score: float
+    score_breakdown: ScoreBreakdown
+    snippet: str
+
+
+class SearchResponse(BaseModel):
+    """Schema for search response"""
+    query: str
+    total_results: int
+    results: List[SearchResult]
+    search_time_ms: float

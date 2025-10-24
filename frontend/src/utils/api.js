@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:8001/api';
+const API_BASE_URL = 'http://127.0.0.1:8001/api';
 
 // Create axios instance with default config
 const api = axios.create({
@@ -57,6 +57,19 @@ export const documentsAPI = {
   getContent: (documentId) => api.get(`/documents/${documentId}/content`),
   
   delete: (documentId) => api.delete(`/documents/${documentId}`),
+  
+  reindex: () => api.post('/documents/reindex'),
+};
+
+// Search API
+export const searchAPI = {
+  search: (query, options = {}) => {
+    return api.post('/search', {
+      query,
+      min_score: options.min_score || 0.1,
+      limit: options.limit || 20,
+    });
+  },
 };
 
 export default api;
