@@ -2,7 +2,7 @@
 Database models for Document Retrieval System
 """
 
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, ForeignKey, Enum
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, ForeignKey, Enum, JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
@@ -49,14 +49,19 @@ class Document(Base):
     __tablename__ = "documents"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    filename = Column(String(255), nullable=False)
+    filename = Column(String(255), nullable=False, index=True)
     file_path = Column(String(500), nullable=False, unique=True)
     file_type = Column(String(50), nullable=True)
     file_size = Column(Integer, nullable=False)
     content = Column(Text, nullable=True)
     keywords = Column(Text, nullable=True)
     page_count = Column(Integer, default=1)
-    uploaded_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    
+    # AI/Search fields
+    embedding = Column(JSON, nullable=True)  # Store embeddings as JSON array
+    content_preview = Column(String(500), nullable=True)  # First 500 chars for snippets
+    
+    uploaded_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     uploaded_by_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     

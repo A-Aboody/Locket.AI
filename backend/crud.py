@@ -6,7 +6,7 @@ import bcrypt
 from sqlalchemy.orm import Session, joinedload
 from database_models import User, UserRole, Document
 from schemas import UserRegister
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 
 def hash_password(password: str) -> str:
@@ -215,3 +215,57 @@ def user_owns_document(db: Session, user_id: int, document_id: int) -> bool:
     """
     document = get_document_by_id(db, document_id)
     return document is not None and document.uploaded_by_id == user_id
+
+# Search Operations
+
+def update_document_embedding(db: Session, document_id: int, embedding: List[float], preview: str) -> bool:
+    """
+    Update document with embedding and preview
+    
+    Args:
+        db: Database session
+        document_id: Document ID
+        embedding: Embedding vector
+        preview: Content preview
+    
+    Returns:
+        True if updated successfully
+    """
+    document = get_document_by_id(db, document_id)
+    if document:
+        document.embedding = embedding
+        document.content_preview = preview
+        db.commit()
+        return True
+    return False
+
+
+def get_all_documents_for_search(db: Session) -> List[Dict]:
+    """
+    Get all documents with necessary fields for search
+    
+    Args:
+        db: Database session
+    
+    Returns:
+        List of document dictionaries
+    """
+    documents = db.query(Document).options(
+        joinedload(Document.uploaded_by)
+    ).all()
+    
+    result = []
+    for doc in documents:
+        result.append({
+            'id': doc.id,
+            'filename': doc.filename,
+            'file_type': doc.file_type,
+            'file_size': doc.file_size,
+            'page_count': doc.page_count,
+            'content': doc.content,
+            'embedding': doc.embedding,
+            'uploaded_at': doc.uploaded_at,
+            'uploaded_by_username': doc.uploaded_by.username if doc.uploaded_by else "Unknown"
+        })
+    
+    return result
