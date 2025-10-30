@@ -294,12 +294,18 @@ def list_documents(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     skip: int = 0,
-    limit: int = 100
+    limit: int = 100,
+    user_only: bool = False  # Add this parameter to filter by user
 ):
     """
-    List all documents - Everyone can see all documents
+    List documents - Can list all documents or only user's documents
     """
-    documents = crud.get_all_documents(db, skip=skip, limit=limit)
+    if user_only:
+        # Get only current user's documents
+        documents = crud.get_user_documents(db, current_user.id, skip=skip, limit=limit)
+    else:
+        # Get all documents (default behavior)
+        documents = crud.get_all_documents(db, skip=skip, limit=limit)
     
     # Add uploader username to each document
     result = []

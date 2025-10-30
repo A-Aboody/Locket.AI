@@ -59,9 +59,8 @@ const MyUploadsPage = () => {
 
   const fetchMyDocuments = async () => {
     try {
-      const response = await documentsAPI.list();
-      const userDocs = response.data.filter(doc => doc.uploaded_by_username === user.username);
-      setDocuments(userDocs);
+      const response = await documentsAPI.listMyDocuments();
+      setDocuments(response.data);
     } catch (error) {
       toast({
         title: 'Failed to load documents',

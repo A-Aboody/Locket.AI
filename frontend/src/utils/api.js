@@ -52,6 +52,11 @@ export const documentsAPI = {
   
   list: (params) => api.get('/documents', { params }),
   
+  // Add new method to get only user's documents
+  listMyDocuments: (params = {}) => api.get('/documents', { 
+    params: { ...params, user_only: true } 
+  }),
+  
   get: (documentId) => api.get(`/documents/${documentId}`),
   
   getContent: (documentId) => api.get(`/documents/${documentId}/content`),

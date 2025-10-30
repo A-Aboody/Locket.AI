@@ -67,9 +67,8 @@ const HomePage = () => {
 
   const fetchMyUploads = async (username) => {
     try {
-      const response = await documentsAPI.list({ limit: 5 });
-      const userDocs = response.data.filter(doc => doc.uploaded_by_username === username);
-      setMyUploadsDocs(userDocs);
+      const response = await documentsAPI.listMyDocuments({ limit: 5 });
+      setMyUploadsDocs(response.data);
     } catch (error) {
       console.error('Failed to fetch user uploads:', error);
     }
