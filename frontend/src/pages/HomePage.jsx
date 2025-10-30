@@ -1,3 +1,4 @@
+// frontend/src/pages/HomePage.jsx
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -15,7 +16,6 @@ import {
   TabList,
   Tab,
   Flex,
-  Slide,
 } from '@chakra-ui/react';
 import { FiLock, FiArrowRight } from 'react-icons/fi';
 import SearchBar from '../custom_components/SearchBar';
@@ -195,7 +195,15 @@ const HomePage = () => {
       </Box>
 
       <Flex h="calc(100vh - 73px)">
-        <Box flex={1} display="flex" flexDirection="column" overflow="hidden">
+        {/* Main Content Area - Shrinks when preview is open */}
+        <Box
+          flex={1}
+          display="flex"
+          flexDirection="column"
+          overflow="hidden"
+          transition="all 0.3s ease-in-out"
+          mr={previewDocumentId && !viewingDocumentId ? '350px' : '0'}
+        >
           {/* Search Bar and Tabs */}
           <Box bg="primary.800" borderBottom="1px" borderColor="primary.600">
             <Box px={6} pt={4} pb={2}>
@@ -253,7 +261,7 @@ const HomePage = () => {
                 onSearchUpdate={handleSearchUpdate}
               />
             ) : (
-              <Container maxW="container.xl">
+              <Box maxW="100%">
                 <VStack spacing={8} align="stretch">
                   {/* Recent Activity */}
                   <Box>
@@ -296,13 +304,22 @@ const HomePage = () => {
                     />
                   </Box>
                 </VStack>
-              </Container>
+              </Box>
             )}
           </Box>
         </Box>
 
-        {/* Right Preview Panel - Slides in */}
-        <Slide direction="right" in={previewDocumentId !== null && !viewingDocumentId} style={{ zIndex: 10, width: '350px', marginLeft: 'auto' }}>
+        {/* Document Preview Panel - Fixed position */}
+        <Box
+          position="fixed"
+          right={0}
+          top="59px"
+          bottom={0}
+          w="350px"
+          transform={`translateX(${previewDocumentId && !viewingDocumentId ? '0' : '100%'})`}
+          transition="transform 0.3s ease-in-out"
+          zIndex={50}
+        >
           {previewDocumentId && !viewingDocumentId && (
             <DocumentPreview
               documentId={previewDocumentId}
@@ -310,7 +327,7 @@ const HomePage = () => {
               onViewDocument={handleOpenFullViewer}
             />
           )}
-        </Slide>
+        </Box>
       </Flex>
 
       <FloatingMenu

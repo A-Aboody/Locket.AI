@@ -225,7 +225,7 @@ async function ensureDockerRunning() {
 function createLoadingWindow() {
   loadingWindow = new BrowserWindow({
     width: 500,
-    height: 350,
+    height: 400,
     frame: false,
     transparent: false,
     resizable: false,
@@ -235,137 +235,15 @@ function createLoadingWindow() {
       preload: path.join(__dirname, 'preload.js'),
     },
     icon: getAppIcon(),
+    show: false,
   });
 
-  // Create HTML for loading screen
-  const loadingHTML = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <style>
-        * {
-          margin: 0;
-          padding: 0;
-          box-sizing: border-box;
-        }
-        body {
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          height: 100vh;
-          color: white;
-        }
-        .container {
-          text-align: center;
-          padding: 40px;
-        }
-        .logo {
-          font-size: 48px;
-          margin-bottom: 10px;
-        }
-        h1 {
-          font-size: 24px;
-          font-weight: 600;
-          margin-bottom: 30px;
-        }
-        .progress-container {
-          background: rgba(255, 255, 255, 0.2);
-          border-radius: 10px;
-          height: 8px;
-          margin: 20px 0;
-          overflow: hidden;
-        }
-        .progress-bar {
-          background: white;
-          height: 100%;
-          width: 0%;
-          transition: width 0.3s ease;
-          border-radius: 10px;
-        }
-        .message {
-          font-size: 14px;
-          opacity: 0.9;
-          min-height: 20px;
-        }
-        .spinner {
-          display: inline-block;
-          width: 20px;
-          height: 20px;
-          border: 3px solid rgba(255, 255, 255, 0.3);
-          border-top-color: white;
-          border-radius: 50%;
-          animation: spin 1s linear infinite;
-          margin-top: 20px;
-        }
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-        .error {
-          background: #ef4444;
-          padding: 20px;
-          border-radius: 10px;
-          margin-top: 20px;
-          font-size: 13px;
-          text-align: left;
-          white-space: pre-wrap;
-        }
-        .error-title {
-          font-weight: bold;
-          margin-bottom: 10px;
-          font-size: 16px;
-        }
-        button {
-          background: white;
-          color: #667eea;
-          border: none;
-          padding: 10px 20px;
-          border-radius: 5px;
-          font-size: 14px;
-          font-weight: 600;
-          cursor: pointer;
-          margin-top: 15px;
-        }
-        button:hover {
-          opacity: 0.9;
-        }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <div class="logo">📄</div>
-        <h1>Document Retrieval System</h1>
-        <div class="progress-container">
-          <div class="progress-bar" id="progress"></div>
-        </div>
-        <div class="message" id="message">Initializing...</div>
-        <div class="spinner" id="spinner"></div>
-        <div id="error-container"></div>
-      </div>
-      <script>
-        const { ipcRenderer } = require('electron');
-        
-        ipcRenderer.on('startup-progress', (event, data) => {
-          document.getElementById('progress').style.width = data.progress + '%';
-          document.getElementById('message').textContent = data.message;
-        });
-        
-        ipcRenderer.on('startup-error', (event, error) => {
-          document.getElementById('spinner').style.display = 'none';
-          document.getElementById('error-container').innerHTML = 
-            '<div class="error">' +
-            '<div class="error-title">❌ Startup Failed</div>' +
-            error +
-            '<button onclick="require(\\'electron\\').remote.app.quit()">Close</button>' +
-            '</div>';
-        });
-      </script>
-    </body>
-    </html>
-  `;
-
-  loadingWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loadingHTML)}`);
+  // Load the external loading HTML file
+  loadingWindow.loadFile(path.join(__dirname, 'loading.html'));
+  
+  loadingWindow.once('ready-to-show', () => {
+    loadingWindow.show();
+  });
   
   loadingWindow.on('closed', () => {
     loadingWindow = null;

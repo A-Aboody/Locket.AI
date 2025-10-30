@@ -1,8 +1,8 @@
+// frontend/src/pages/MyUploadsPage.jsx
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
-  Container,
   Heading,
   Text,
   HStack,
@@ -13,7 +13,6 @@ import {
   TabList,
   Tab,
   Flex,
-  Slide,
 } from '@chakra-ui/react';
 import { FiLock } from 'react-icons/fi';
 import SearchBar from '../custom_components/SearchBar';
@@ -196,7 +195,15 @@ const MyUploadsPage = () => {
       </Box>
 
       <Flex h="calc(100vh - 73px)">
-        <Box flex={1} display="flex" flexDirection="column" overflow="hidden">
+        {/* Main Content Area - Shrinks when preview is open */}
+        <Box
+          flex={1}
+          display="flex"
+          flexDirection="column"
+          overflow="hidden"
+          transition="all 0.3s ease-in-out"
+          mr={previewDocumentId && !viewingDocumentId ? '350px' : '0'}
+        >
           <Box bg="primary.800" borderBottom="1px" borderColor="primary.600">
             <Box px={6} pt={4} pb={2}>
               <SearchBar onSearch={handleSearch} isLoading={isSearching} />
@@ -251,7 +258,7 @@ const MyUploadsPage = () => {
                 onSearchUpdate={handleSearchUpdate}
               />
             ) : (
-              <Container maxW="container.xl">
+              <Box maxW="100%">
                 <Text fontSize="xl" fontWeight="bold" color="white" mb={4}>
                   My Uploads
                 </Text>
@@ -261,12 +268,22 @@ const MyUploadsPage = () => {
                   onDelete={handleSearchUpdate}
                   emptyMessage="You haven't uploaded any documents yet"
                 />
-              </Container>
+              </Box>
             )}
           </Box>
         </Box>
 
-        <Slide direction="right" in={previewDocumentId !== null && !viewingDocumentId} style={{ zIndex: 10 }}>
+        {/* Document Preview Panel - Fixed position */}
+        <Box
+          position="fixed"
+          right={0}
+          top="59px"
+          bottom={0}
+          w="350px"
+          transform={`translateX(${previewDocumentId && !viewingDocumentId ? '0' : '100%'})`}
+          transition="transform 0.3s ease-in-out"
+          zIndex={50}
+        >
           {previewDocumentId && !viewingDocumentId && (
             <DocumentPreview
               documentId={previewDocumentId}
@@ -274,7 +291,7 @@ const MyUploadsPage = () => {
               onViewDocument={handleOpenFullViewer}
             />
           )}
-        </Slide>
+        </Box>
       </Flex>
 
       <FloatingMenu

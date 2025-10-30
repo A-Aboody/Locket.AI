@@ -123,6 +123,7 @@ const DocumentPreview = ({ documentId, onClose, onViewDocument }) => {
       w="350px"
       bg="primary.800"
       borderRight="1px"
+      borderLeft="1px"
       borderColor="primary.600"
       h="full"
       display="flex"

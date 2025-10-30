@@ -149,16 +149,6 @@ const SearchResults = ({ results, query, searchTime, isLoading, onViewDocument, 
                         <Text>•</Text>
                         <Text>{formatDate(result.uploaded_at)}</Text>
                       </HStack>
-
-                      {/* Relevance Score */}
-                      <HStack spacing={2}>
-                        <Text fontSize="xs" color="gray.500">
-                          Relevance:
-                        </Text>
-                        <Badge colorScheme="green" fontSize="xs">
-                          {Math.round(result.relevance_score * 100)}%
-                        </Badge>
-                      </HStack>
                     </VStack>
                   </HStack>
 

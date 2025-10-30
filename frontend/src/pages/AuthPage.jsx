@@ -11,7 +11,7 @@ const AuthPage = () => {
             <Icon as={FiLock} boxSize={12} color="accent.500" />
           </HStack>
           <Heading size="2xl" mb={3} color="white" fontWeight="bold">
-            Document Retrieval System
+            Locket.AI
           </Heading>
           <Text color="gray.400" fontSize="lg">
             Secure access to your intelligent document management platform
