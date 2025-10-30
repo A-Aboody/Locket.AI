@@ -6,9 +6,7 @@ import {
   Heading,
   Text,
   HStack,
-  VStack,
   Badge,
-  Button,
   Icon,
   useToast,
   Tabs,
@@ -17,7 +15,7 @@ import {
   Flex,
   Slide,
 } from '@chakra-ui/react';
-import { FiLock, FiArrowRight } from 'react-icons/fi';
+import { FiLock } from 'react-icons/fi';
 import SearchBar from '../custom_components/SearchBar';
 import SearchResults from '../custom_components/SearchResults';
 import DocumentList from '../custom_components/DocumentList';
@@ -26,10 +24,10 @@ import DocumentPreview from '../custom_components/DocumentPreview';
 import FloatingMenu from '../custom_components/FloatingMenu';
 import { searchAPI, documentsAPI } from '../utils/api';
 
-const HomePage = () => {
+const AllDocumentsPage = () => {
   const [user, setUser] = useState(null);
-  const [recentDocs, setRecentDocs] = useState([]);
-  const [myUploadsDocs, setMyUploadsDocs] = useState([]);
+  const [documents, setDocuments] = useState([]);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [viewingDocumentId, setViewingDocumentId] = useState(null);
   const [previewDocumentId, setPreviewDocumentId] = useState(null);
   
@@ -50,28 +48,25 @@ const HomePage = () => {
       return;
     }
 
-    const userData = JSON.parse(storedUser);
-    setUser(userData);
-    fetchRecentActivity();
-    fetchMyUploads(userData.username);
+    setUser(JSON.parse(storedUser));
   }, [navigate]);
 
-  const fetchRecentActivity = async () => {
-    try {
-      const response = await documentsAPI.list({ limit: 5 });
-      setRecentDocs(response.data);
-    } catch (error) {
-      console.error('Failed to fetch recent activity:', error);
-    }
-  };
+  useEffect(() => {
+    fetchAllDocuments();
+  }, [refreshTrigger]);
 
-  const fetchMyUploads = async (username) => {
+  const fetchAllDocuments = async () => {
     try {
-      const response = await documentsAPI.list({ limit: 5 });
-      const userDocs = response.data.filter(doc => doc.uploaded_by_username === username);
-      setMyUploadsDocs(userDocs);
+      const response = await documentsAPI.list();
+      setDocuments(response.data);
     } catch (error) {
-      console.error('Failed to fetch user uploads:', error);
+      toast({
+        title: 'Failed to load documents',
+        description: error.response?.data?.detail || 'An error occurred',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
     }
   };
 
@@ -132,6 +127,8 @@ const HomePage = () => {
   const handleSearchUpdate = () => {
     if (searchQuery) {
       handleSearch(searchQuery);
+    } else {
+      setRefreshTrigger(prev => prev + 1);
     }
   };
 
@@ -159,7 +156,6 @@ const HomePage = () => {
 
   return (
     <Box minH="100vh" bg="background.primary">
-      {/* Top Header Bar */}
       <Box
         bg="primary.800"
         borderBottom="1px"
@@ -196,13 +192,12 @@ const HomePage = () => {
 
       <Flex h="calc(100vh - 73px)">
         <Box flex={1} display="flex" flexDirection="column" overflow="hidden">
-          {/* Search Bar and Tabs */}
           <Box bg="primary.800" borderBottom="1px" borderColor="primary.600">
             <Box px={6} pt={4} pb={2}>
               <SearchBar onSearch={handleSearch} isLoading={isSearching} />
             </Box>
             
-            <Tabs colorScheme="accent" variant="line" px={6}>
+            <Tabs colorScheme="accent" variant="line" px={6} defaultIndex={1}>
               <TabList borderBottom="none">
                 <Tab
                   color="gray.400"
@@ -214,7 +209,6 @@ const HomePage = () => {
                 <Tab
                   color="gray.400"
                   _selected={{ color: 'accent.500', borderColor: 'accent.500' }}
-                  onClick={() => navigate('/documents')}
                 >
                   Documents
                 </Tab>
@@ -236,7 +230,6 @@ const HomePage = () => {
             </Tabs>
           </Box>
 
-          {/* Content Area */}
           <Box flex={1} overflowY="auto" p={6}>
             {viewingDocumentId ? (
               <DocumentViewer
@@ -254,55 +247,21 @@ const HomePage = () => {
               />
             ) : (
               <Container maxW="container.xl">
-                <VStack spacing={8} align="stretch">
-                  {/* Recent Activity */}
-                  <Box>
-                    <HStack justify="space-between" mb={4}>
-                      <Text fontSize="xl" fontWeight="bold" color="white">
-                        Recent Activity
-                      </Text>
-                    </HStack>
-                    <DocumentList
-                      documents={recentDocs}
-                      onViewDocument={handleViewDocument}
-                      emptyMessage="No recent activity"
-                    />
-                  </Box>
-
-                  {/* My Uploads */}
-                  <Box>
-                    <HStack justify="space-between" mb={4}>
-                      <Text fontSize="xl" fontWeight="bold" color="white">
-                        My Uploads
-                      </Text>
-                      {myUploadsDocs.length >= 5 && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          colorScheme="accent"
-                          rightIcon={<FiArrowRight />}
-                          onClick={() => navigate('/my-uploads')}
-                          color="accent.400"
-                          _hover={{ color: 'accent.300', bg: 'primary.700' }}
-                        >
-                          View More
-                        </Button>
-                      )}
-                    </HStack>
-                    <DocumentList
-                      documents={myUploadsDocs}
-                      onViewDocument={handleViewDocument}
-                      emptyMessage="You haven't uploaded any documents yet"
-                    />
-                  </Box>
-                </VStack>
+                <Text fontSize="xl" fontWeight="bold" color="white" mb={4}>
+                  All Documents
+                </Text>
+                <DocumentList
+                  documents={documents}
+                  onViewDocument={handleViewDocument}
+                  onDelete={handleSearchUpdate}
+                  emptyMessage="No documents in the system"
+                />
               </Container>
             )}
           </Box>
         </Box>
 
-        {/* Right Preview Panel - Slides in */}
-        <Slide direction="right" in={previewDocumentId !== null && !viewingDocumentId} style={{ zIndex: 10, width: '350px', marginLeft: 'auto' }}>
+        <Slide direction="right" in={previewDocumentId !== null && !viewingDocumentId} style={{ zIndex: 10 }}>
           {previewDocumentId && !viewingDocumentId && (
             <DocumentPreview
               documentId={previewDocumentId}
@@ -322,4 +281,4 @@ const HomePage = () => {
   );
 };
 
-export default HomePage;
+export default AllDocumentsPage;
