@@ -56,6 +56,17 @@ export const documentsAPI = {
   
   getContent: (documentId) => api.get(`/documents/${documentId}/content`),
   
+  getFileUrl: (documentId) => {
+    const token = localStorage.getItem('token');
+    return `${API_BASE_URL}/documents/${documentId}/download?token=${token}`;
+  },
+  
+  downloadFile: (documentId) => {
+    return api.get(`/documents/${documentId}/download`, {
+      responseType: 'blob',
+    });
+  },
+  
   delete: (documentId) => api.delete(`/documents/${documentId}`),
   
   reindex: () => api.post('/documents/reindex'),

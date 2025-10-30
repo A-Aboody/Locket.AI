@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Index all documents with AI embeddings
 """
