@@ -5,7 +5,7 @@ Document Retrieval System API
 
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
 import os
@@ -374,6 +374,43 @@ def get_document_content(
         "content": document.content or "",
         "page_count": document.page_count
     }
+
+
+@app.get("/api/documents/{document_id}/download")
+def download_document(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Download/view document file - Everyone can view all documents
+    """
+    document = crud.get_document_by_id(db, document_id)
+    
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found"
+        )
+    
+    # Check if file exists
+    if not os.path.exists(document.file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found on server"
+        )
+    
+    # Determine media type
+    media_type = document.file_type or "application/octet-stream"
+    
+    return FileResponse(
+        path=document.file_path,
+        media_type=media_type,
+        filename=document.filename,
+        headers={
+            "Content-Disposition": f'inline; filename="{document.filename}"'
+        }
+    )
 
 
 @app.delete("/api/documents/{document_id}", response_model=schemas.Message)
