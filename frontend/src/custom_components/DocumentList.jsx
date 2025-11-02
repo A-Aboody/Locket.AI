@@ -74,6 +74,12 @@ const DocumentList = ({ documents = [], onViewDocument, onDelete, emptyMessage =
     return filename.split('.').pop().toUpperCase();
   };
 
+  const handleTitleClick = (documentId) => {
+    if (onViewDocument) {
+      onViewDocument(documentId);
+    }
+  };
+
   if (loading) {
     return (
       <Box bg="primary.800" p={8} rounded="lg" border="1px" borderColor="primary.600" textAlign="center">
@@ -114,8 +120,19 @@ const DocumentList = ({ documents = [], onViewDocument, onDelete, emptyMessage =
                 <Tr key={doc.id} _hover={{ bg: 'primary.700' }} transition="background 0.2s">
                   <Td borderColor="primary.600">
                     <HStack spacing={3}>
-                      <Icon as={FiFile} boxSize={5} color="gray.400" />
-                      <Text color="gray.200" fontWeight="medium">
+                      <Icon as={FiFile} boxSize={5} color="red.400" />
+                      <Text 
+                        color="gray.200" 
+                        fontWeight="medium"
+                        cursor="pointer"
+                        transition="color 0.2s"
+                        _hover={{ 
+                          color: 'accent.400',
+                          textDecoration: 'underline'
+                        }}
+                        onClick={() => handleTitleClick(doc.id)}
+                        title="Click to preview document"
+                      >
                         {doc.filename}
                       </Text>
                     </HStack>

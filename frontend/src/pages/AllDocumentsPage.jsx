@@ -1,4 +1,3 @@
-// frontend/src/pages/AllDocumentsPage.jsx
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -169,7 +168,7 @@ const AllDocumentsPage = () => {
           <HStack spacing={4}>
             <Icon as={FiLock} boxSize={6} color="accent.500" />
             <Heading size="md" color="white" fontWeight="bold">
-              LOCKET
+              LOCKET.AI
             </Heading>
           </HStack>
 
@@ -190,7 +189,7 @@ const AllDocumentsPage = () => {
       </Box>
 
       <Flex h="calc(100vh - 73px)">
-        {/* Main Content Area - Shrinks when preview is open */}
+        {/* Main Content Area */}
         <Box
           flex={1}
           display="flex"
@@ -268,7 +267,7 @@ const AllDocumentsPage = () => {
           </Box>
         </Box>
 
-        {/* Document Preview Panel - Fixed position */}
+        {/* Document Preview Panel */}
         <Box
           position="fixed"
           right={0}

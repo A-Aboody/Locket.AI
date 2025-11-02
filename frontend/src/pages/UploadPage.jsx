@@ -99,7 +99,7 @@ const UploadPage = () => {
           <HStack spacing={4}>
             <Icon as={FiLock} boxSize={6} color="accent.500" />
             <Heading size="md" color="white" fontWeight="bold">
-              LOCKET
+              LOCKET.AI
             </Heading>
           </HStack>
 

@@ -1,4 +1,3 @@
-// frontend/src/pages/HomePage.jsx
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -173,7 +172,7 @@ const HomePage = () => {
           <HStack spacing={4}>
             <Icon as={FiLock} boxSize={6} color="accent.500" />
             <Heading size="md" color="white" fontWeight="bold">
-              LOCKET
+              LOCKET.AI
             </Heading>
           </HStack>
 
@@ -194,7 +193,7 @@ const HomePage = () => {
       </Box>
 
       <Flex h="calc(100vh - 73px)">
-        {/* Main Content Area - Shrinks when preview is open */}
+        {/* Main Content Area */}
         <Box
           flex={1}
           display="flex"
@@ -265,7 +264,7 @@ const HomePage = () => {
                   {/* Recent Activity */}
                   <Box>
                     <HStack justify="space-between" mb={4}>
-                      <Text fontSize="xl" fontWeight="bold" color="white">
+                      <Text fontSize="xl" fontWeight="bold" color="accent.500">
                         Recent Activity
                       </Text>
                     </HStack>
@@ -279,7 +278,7 @@ const HomePage = () => {
                   {/* My Uploads */}
                   <Box>
                     <HStack justify="space-between" mb={4}>
-                      <Text fontSize="xl" fontWeight="bold" color="white">
+                      <Text fontSize="xl" fontWeight="bold" color="accent.500">
                         My Uploads
                       </Text>
                       {myUploadsDocs.length >= 5 && (
@@ -308,7 +307,7 @@ const HomePage = () => {
           </Box>
         </Box>
 
-        {/* Document Preview Panel - Fixed position */}
+        {/* Document Preview Panel */}
         <Box
           position="fixed"
           right={0}
