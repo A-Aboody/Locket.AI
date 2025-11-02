@@ -3,11 +3,12 @@ FastAPI main application
 Document Retrieval System API
 """
 
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
+from typing import List, Optional
 import os
 import uuid
 import traceback
@@ -152,7 +153,7 @@ def verify_token(current_user: User = Depends(get_current_user)):
 
 # User routes
 
-@app.get("/api/users", response_model=list[schemas.UserResponse])
+@app.get("/api/users", response_model=List[schemas.UserResponse])
 def list_users(
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db)
@@ -169,16 +170,20 @@ def list_users(
 @app.post("/api/documents/upload", response_model=schemas.DocumentUploadResponse)
 async def upload_document(
     file: UploadFile = File(...),
+    visibility: str = Form("private"),
+    user_group_id: Optional[int] = Form(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    Upload a document
+    Upload a document with visibility settings
     
     Supported formats: PDF, TXT, DOCX, DOC
     """
     print(f"[DEBUG] Upload started by user: {current_user.username}")
     print(f"[DEBUG] File: {file.filename}")
+    print(f"[DEBUG] Visibility: {visibility}")
+    print(f"[DEBUG] Group ID: {user_group_id}")
     
     import search_service
     
@@ -188,6 +193,28 @@ async def upload_document(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"File type not allowed. Supported types: {', '.join(config.ALLOWED_EXTENSIONS)}"
         )
+    
+    # Validate visibility
+    if visibility not in ['private', 'public', 'group']:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid visibility setting"
+        )
+    
+    # Validate group access if group visibility
+    if visibility == 'group':
+        if not user_group_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Group ID required for group visibility"
+            )
+        
+        # Check if user is member of the group
+        if not crud.is_user_in_group(db, current_user.id, user_group_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not a member of the specified group"
+            )
     
     # Read file content
     file_content = await file.read()
@@ -261,7 +288,9 @@ async def upload_document(
             page_count=page_count,
             embedding=embedding,
             content_preview=content_preview,
-            uploaded_by_id=current_user.id
+            uploaded_by_id=current_user.id,
+            visibility=visibility,
+            user_group_id=user_group_id if visibility == 'group' else None
         )
         
         db.add(document)
@@ -285,6 +314,8 @@ async def upload_document(
         "file_type": document.file_type,
         "file_size": document.file_size,
         "uploaded_at": document.uploaded_at,
+        "visibility": document.visibility,
+        "user_group_id": document.user_group_id,
         "message": "Document uploaded and indexed successfully"
     }
 
@@ -304,8 +335,8 @@ def list_documents(
         # Get only current user's documents
         documents = crud.get_user_documents(db, current_user.id, skip=skip, limit=limit)
     else:
-        # Get all documents (default behavior)
-        documents = crud.get_all_documents(db, skip=skip, limit=limit)
+        # Get all visible documents (respects visibility settings)
+        documents = crud.get_visible_documents(db, current_user.id, skip=skip, limit=limit)
     
     # Add uploader username to each document
     result = []
@@ -319,7 +350,10 @@ def list_documents(
             "uploaded_at": doc.uploaded_at,
             "updated_at": doc.updated_at,
             "uploaded_by_id": doc.uploaded_by_id,
-            "uploaded_by_username": doc.uploaded_by.username if doc.uploaded_by else "Unknown"
+            "uploaded_by_username": doc.uploaded_by.username if doc.uploaded_by else "Unknown",
+            "visibility": doc.visibility,
+            "user_group_id": doc.user_group_id,
+            "user_group_name": doc.user_group.name if doc.user_group else None
         }
         result.append(doc_dict)
     
@@ -333,7 +367,7 @@ def get_document(
     db: Session = Depends(get_db)
 ):
     """
-    Get document metadata by ID - Everyone can view all documents
+    Get document metadata by ID - Respects visibility settings
     """
     document = crud.get_document_by_id(db, document_id)
     
@@ -342,6 +376,20 @@ def get_document(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Document not found"
         )
+    
+    # Check visibility permissions
+    if document.visibility == 'private' and document.uploaded_by_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to view this document"
+        )
+    
+    if document.visibility == 'group':
+        if not crud.is_user_in_group(db, current_user.id, document.user_group_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to view this group document"
+            )
     
     return {
         "id": document.id,
@@ -352,7 +400,10 @@ def get_document(
         "uploaded_at": document.uploaded_at,
         "updated_at": document.updated_at,
         "uploaded_by_id": document.uploaded_by_id,
-        "uploaded_by_username": document.uploaded_by.username if document.uploaded_by else "Unknown"
+        "uploaded_by_username": document.uploaded_by.username if document.uploaded_by else "Unknown",
+        "visibility": document.visibility,
+        "user_group_id": document.user_group_id,
+        "user_group_name": document.user_group.name if document.user_group else None
     }
 
 
@@ -363,7 +414,7 @@ def get_document_content(
     db: Session = Depends(get_db)
 ):
     """
-    Get document content by ID - Everyone can view all documents
+    Get document content by ID - Respects visibility settings
     """
     document = crud.get_document_by_id(db, document_id)
     
@@ -372,6 +423,20 @@ def get_document_content(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Document not found"
         )
+    
+    # Check visibility permissions
+    if document.visibility == 'private' and document.uploaded_by_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to view this document"
+        )
+    
+    if document.visibility == 'group':
+        if not crud.is_user_in_group(db, current_user.id, document.user_group_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to view this group document"
+            )
     
     return {
         "id": document.id,
@@ -389,7 +454,7 @@ def download_document(
     db: Session = Depends(get_db)
 ):
     """
-    Download/view document file - Everyone can view all documents
+    Download/view document file - Respects visibility settings
     """
     document = crud.get_document_by_id(db, document_id)
     
@@ -398,6 +463,20 @@ def download_document(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Document not found"
         )
+    
+    # Check visibility permissions
+    if document.visibility == 'private' and document.uploaded_by_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to download this document"
+        )
+    
+    if document.visibility == 'group':
+        if not crud.is_user_in_group(db, current_user.id, document.user_group_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to download this group document"
+            )
     
     # Check if file exists
     if not os.path.exists(document.file_path):
@@ -487,10 +566,10 @@ def search_documents(
     start_time = time.time()
     
     try:
-        # Get all documents
+        # Get all visible documents for this user
         print(f"[SEARCH] Fetching documents from database...")
-        documents = crud.get_all_documents_for_search(db)
-        print(f"[SEARCH] Found {len(documents)} documents")
+        documents = crud.get_all_documents_for_search(db, current_user.id)
+        print(f"[SEARCH] Found {len(documents)} visible documents")
         
         # Check if any documents have embeddings
         docs_with_embeddings = sum(1 for doc in documents if doc.get('embedding'))
@@ -592,6 +671,218 @@ def reindex_all_documents(
     print(f"[REINDEX] {message}")
     
     return {"message": message}
+
+
+# User Group Routes
+
+@app.post("/api/user-groups", response_model=schemas.UserGroupResponse)
+def create_user_group(
+    group_data: schemas.UserGroupCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Create a new user group
+    """
+    # Validate that all member IDs exist
+    for user_id in group_data.member_ids:
+        user = crud.get_user_by_id(db, user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"User with ID {user_id} not found"
+            )
+    
+    group = crud.create_user_group(db, group_data, current_user.id)
+    return group
+
+
+@app.get("/api/user-groups", response_model=List[schemas.UserGroupResponse])
+def get_user_groups(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all user groups that the current user is member of
+    """
+    groups = crud.get_user_groups_for_user(db, current_user.id)
+    return groups
+
+
+@app.get("/api/user-groups/{group_id}", response_model=schemas.UserGroupResponse)
+def get_user_group(
+    group_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get specific user group (must be member)
+    """
+    group = crud.get_user_group_by_id(db, group_id)
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Group not found"
+        )
+    
+    # Check if user is member of the group
+    if not crud.is_user_in_group(db, current_user.id, group_id) and current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not a member of this group"
+        )
+    
+    return group
+
+
+@app.put("/api/user-groups/{group_id}", response_model=schemas.UserGroupResponse)
+def update_user_group(
+    group_id: int,
+    update_data: schemas.UserGroupUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update user group (only creator can update)
+    """
+    group = crud.get_user_group_by_id(db, group_id)
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Group not found"
+        )
+    
+    # Check if user is the creator
+    if group.created_by_id != current_user.id and current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only group creator can update the group"
+        )
+    
+    updated_group = crud.update_user_group(db, group_id, update_data)
+    if not updated_group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Group not found"
+        )
+    
+    return updated_group
+
+
+@app.post("/api/user-groups/{group_id}/members/{user_id}")
+def add_member_to_group(
+    group_id: int,
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Add a user to a group (only members can add others)
+    """
+    # Check if current user is member of the group
+    if not crud.is_user_in_group(db, current_user.id, group_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not a member of this group"
+        )
+    
+    # Check if target user exists
+    target_user = crud.get_user_by_id(db, user_id)
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    success = crud.add_user_to_group(db, user_id, group_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User is already in the group"
+        )
+    
+    return {"message": "User added to group successfully"}
+
+
+@app.delete("/api/user-groups/{group_id}/members/{user_id}")
+def remove_member_from_group(
+    group_id: int,
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Remove a user from a group
+    """
+    # Users can remove themselves, creators can remove anyone
+    if user_id != current_user.id:
+        group = crud.get_user_group_by_id(db, group_id)
+        if not group or group.created_by_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only group creator can remove other members"
+            )
+    
+    success = crud.remove_user_from_group(db, user_id, group_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot remove user from group"
+        )
+    
+    return {"message": "User removed from group successfully"}
+
+
+@app.delete("/api/user-groups/{group_id}")
+def delete_user_group(
+    group_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a user group (only creator or admin)
+    """
+    group = crud.get_user_group_by_id(db, group_id)
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Group not found"
+        )
+    
+    # Check if user is creator or admin
+    if group.created_by_id != current_user.id and current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only group creator or admin can delete the group"
+        )
+    
+    success = crud.delete_user_group(db, group_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Group not found"
+        )
+    
+    return {"message": "Group deleted successfully"}
+
+
+@app.get("/api/users/search")
+def search_users(
+    query: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Search users by username or email
+    """
+    if len(query) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Query must be at least 2 characters long"
+        )
+    
+    users = crud.search_users(db, query, exclude_user_id=current_user.id)
+    return users
 
 
 # Run the application
