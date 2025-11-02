@@ -15,8 +15,11 @@ import {
   TabList,
   Tab,
   Flex,
+  IconButton,
+  Tooltip,
+  ButtonGroup,
 } from '@chakra-ui/react';
-import { FiLock, FiArrowRight } from 'react-icons/fi';
+import { FiLock, FiArrowRight, FiGrid, FiList } from 'react-icons/fi';
 import SearchBar from '../custom_components/SearchBar';
 import SearchResults from '../custom_components/SearchResults';
 import DocumentList from '../custom_components/DocumentList';
@@ -31,6 +34,7 @@ const HomePage = () => {
   const [myUploadsDocs, setMyUploadsDocs] = useState([]);
   const [viewingDocumentId, setViewingDocumentId] = useState(null);
   const [previewDocumentId, setPreviewDocumentId] = useState(null);
+  const [viewMode, setViewMode] = useState(localStorage.getItem('documentViewMode') || 'card');
   
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState(null);
@@ -57,7 +61,7 @@ const HomePage = () => {
 
   const fetchRecentActivity = async () => {
     try {
-      const response = await documentsAPI.list({ limit: 5 });
+      const response = await documentsAPI.list({ limit: 6 });
       setRecentDocs(response.data);
     } catch (error) {
       console.error('Failed to fetch recent activity:', error);
@@ -66,11 +70,16 @@ const HomePage = () => {
 
   const fetchMyUploads = async (username) => {
     try {
-      const response = await documentsAPI.listMyDocuments({ limit: 5 });
+      const response = await documentsAPI.listMyDocuments({ limit: 6 });
       setMyUploadsDocs(response.data);
     } catch (error) {
       console.error('Failed to fetch user uploads:', error);
     }
+  };
+
+  const handleViewModeChange = (mode) => {
+    setViewMode(mode);
+    localStorage.setItem('documentViewMode', mode);
   };
 
   const handleLogout = () => {
@@ -157,7 +166,6 @@ const HomePage = () => {
 
   return (
     <Box minH="100vh" bg="background.primary">
-      {/* Top Header Bar */}
       <Box
         bg="primary.800"
         borderBottom="1px"
@@ -193,7 +201,6 @@ const HomePage = () => {
       </Box>
 
       <Flex h="calc(100vh - 73px)">
-        {/* Main Content Area */}
         <Box
           flex={1}
           display="flex"
@@ -202,7 +209,6 @@ const HomePage = () => {
           transition="all 0.3s ease-in-out"
           mr={previewDocumentId && !viewingDocumentId ? '350px' : '0'}
         >
-          {/* Search Bar and Tabs */}
           <Box bg="primary.800" borderBottom="1px" borderColor="primary.600">
             <Box px={6} pt={4} pb={2}>
               <SearchBar onSearch={handleSearch} isLoading={isSearching} />
@@ -242,7 +248,6 @@ const HomePage = () => {
             </Tabs>
           </Box>
 
-          {/* Content Area */}
           <Box flex={1} overflowY="auto" p={6}>
             {viewingDocumentId ? (
               <DocumentViewer
@@ -260,11 +265,43 @@ const HomePage = () => {
               />
             ) : (
               <Box maxW="100%">
+                {/* View Toggle - Single instance for the whole page */}
+                <HStack justify="flex-end" mb={4}>
+                  <ButtonGroup size="sm" isAttached variant="outline">
+                    <Tooltip label="Card view">
+                      <IconButton
+                        icon={<FiGrid />}
+                        onClick={() => handleViewModeChange('card')}
+                        aria-label="Card view"
+                        colorScheme={viewMode === 'card' ? 'accent' : 'gray'}
+                        bg={viewMode === 'card' ? 'accent.500' : 'transparent'}
+                        color={viewMode === 'card' ? 'white' : 'gray.400'}
+                        _hover={{
+                          bg: viewMode === 'card' ? 'accent.600' : 'primary.700',
+                        }}
+                      />
+                    </Tooltip>
+                    <Tooltip label="List view">
+                      <IconButton
+                        icon={<FiList />}
+                        onClick={() => handleViewModeChange('list')}
+                        aria-label="List view"
+                        colorScheme={viewMode === 'list' ? 'accent' : 'gray'}
+                        bg={viewMode === 'list' ? 'accent.500' : 'transparent'}
+                        color={viewMode === 'list' ? 'white' : 'gray.400'}
+                        _hover={{
+                          bg: viewMode === 'list' ? 'accent.600' : 'primary.700',
+                        }}
+                      />
+                    </Tooltip>
+                  </ButtonGroup>
+                </HStack>
+
                 <VStack spacing={8} align="stretch">
                   {/* Recent Activity */}
                   <Box>
                     <HStack justify="space-between" mb={4}>
-                      <Text fontSize="xl" fontWeight="bold" color="accent.500">
+                      <Text fontSize="xl" fontWeight="bold" color="white">
                         Recent Activity
                       </Text>
                     </HStack>
@@ -272,16 +309,17 @@ const HomePage = () => {
                       documents={recentDocs}
                       onViewDocument={handleViewDocument}
                       emptyMessage="No recent activity"
+                      viewMode={viewMode}
                     />
                   </Box>
 
                   {/* My Uploads */}
                   <Box>
                     <HStack justify="space-between" mb={4}>
-                      <Text fontSize="xl" fontWeight="bold" color="accent.500">
+                      <Text fontSize="xl" fontWeight="bold" color="white">
                         My Uploads
                       </Text>
-                      {myUploadsDocs.length >= 5 && (
+                      {myUploadsDocs.length >= 6 && (
                         <Button
                           size="sm"
                           variant="ghost"
@@ -299,6 +337,7 @@ const HomePage = () => {
                       documents={myUploadsDocs}
                       onViewDocument={handleViewDocument}
                       emptyMessage="You haven't uploaded any documents yet"
+                      viewMode={viewMode}
                     />
                   </Box>
                 </VStack>
@@ -307,7 +346,6 @@ const HomePage = () => {
           </Box>
         </Box>
 
-        {/* Document Preview Panel */}
         <Box
           position="fixed"
           right={0}

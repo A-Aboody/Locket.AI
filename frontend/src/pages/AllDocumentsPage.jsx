@@ -12,8 +12,11 @@ import {
   TabList,
   Tab,
   Flex,
+  IconButton,
+  Tooltip,
+  ButtonGroup,
 } from '@chakra-ui/react';
-import { FiLock } from 'react-icons/fi';
+import { FiLock, FiGrid, FiList } from 'react-icons/fi';
 import SearchBar from '../custom_components/SearchBar';
 import SearchResults from '../custom_components/SearchResults';
 import DocumentList from '../custom_components/DocumentList';
@@ -28,6 +31,7 @@ const AllDocumentsPage = () => {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [viewingDocumentId, setViewingDocumentId] = useState(null);
   const [previewDocumentId, setPreviewDocumentId] = useState(null);
+  const [viewMode, setViewMode] = useState(localStorage.getItem('documentViewMode') || 'card');
   
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState(null);
@@ -66,6 +70,11 @@ const AllDocumentsPage = () => {
         isClosable: true,
       });
     }
+  };
+
+  const handleViewModeChange = (mode) => {
+    setViewMode(mode);
+    localStorage.setItem('documentViewMode', mode);
   };
 
   const handleLogout = () => {
@@ -253,14 +262,45 @@ const AllDocumentsPage = () => {
               />
             ) : (
               <Box maxW="100%">
-                <Text fontSize="xl" fontWeight="bold" color="white" mb={4}>
-                  All Documents
-                </Text>
+                <HStack justify="space-between" mb={4}>
+                  <Text fontSize="xl" fontWeight="bold" color="white">
+                    All Documents
+                  </Text>
+                  <ButtonGroup size="sm" isAttached variant="outline">
+                    <Tooltip label="Card view">
+                      <IconButton
+                        icon={<FiGrid />}
+                        onClick={() => handleViewModeChange('card')}
+                        aria-label="Card view"
+                        colorScheme={viewMode === 'card' ? 'accent' : 'gray'}
+                        bg={viewMode === 'card' ? 'accent.500' : 'transparent'}
+                        color={viewMode === 'card' ? 'white' : 'gray.400'}
+                        _hover={{
+                          bg: viewMode === 'card' ? 'accent.600' : 'primary.700',
+                        }}
+                      />
+                    </Tooltip>
+                    <Tooltip label="List view">
+                      <IconButton
+                        icon={<FiList />}
+                        onClick={() => handleViewModeChange('list')}
+                        aria-label="List view"
+                        colorScheme={viewMode === 'list' ? 'accent' : 'gray'}
+                        bg={viewMode === 'list' ? 'accent.500' : 'transparent'}
+                        color={viewMode === 'list' ? 'white' : 'gray.400'}
+                        _hover={{
+                          bg: viewMode === 'list' ? 'accent.600' : 'primary.700',
+                        }}
+                      />
+                    </Tooltip>
+                  </ButtonGroup>
+                </HStack>
                 <DocumentList
                   documents={documents}
                   onViewDocument={handleViewDocument}
                   onDelete={handleSearchUpdate}
                   emptyMessage="No documents in the system"
+                  viewMode={viewMode}
                 />
               </Box>
             )}
