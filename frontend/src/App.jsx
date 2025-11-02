@@ -1,4 +1,5 @@
 import { Route, Routes } from 'react-router-dom';
+import HeroLandingPage from './pages/HeroLandingPage';
 import HomePage from './pages/HomePage';
 import AllDocumentsPage from './pages/AllDocumentsPage';
 import MyUploadsPage from './pages/MyUploadsPage';
@@ -9,7 +10,8 @@ import NotFoundPage from './pages/NotFoundPage';
 function App() {
   return (
     <Routes>
-      <Route path="/" element={<HomePage />} />
+      <Route path="/" element={<HeroLandingPage />} />
+      <Route path="/dashboard" element={<HomePage />} />
       <Route path="/documents" element={<AllDocumentsPage />} />
       <Route path="/my-uploads" element={<MyUploadsPage />} />
       <Route path="/upload" element={<UploadPage />} />

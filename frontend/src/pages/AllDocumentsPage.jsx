@@ -5,24 +5,22 @@ import {
   Heading,
   Text,
   HStack,
-  Badge,
-  Icon,
   useToast,
-  Tabs,
-  TabList,
-  Tab,
   Flex,
   IconButton,
   Tooltip,
   ButtonGroup,
 } from '@chakra-ui/react';
-import { FiLock, FiGrid, FiList } from 'react-icons/fi';
+import { FiGrid, FiList } from 'react-icons/fi';
 import SearchBar from '../custom_components/SearchBar';
 import SearchResults from '../custom_components/SearchResults';
 import DocumentList from '../custom_components/DocumentList';
 import DocumentViewer from '../custom_components/DocumentViewer';
 import DocumentPreview from '../custom_components/DocumentPreview';
 import FloatingMenu from '../custom_components/FloatingMenu';
+import AppHeader from '../custom_components/AppHeader';
+import NavTabs from '../custom_components/NavTabs';
+import PageTransition from '../custom_components/PageTransition';
 import { searchAPI, documentsAPI } from '../utils/api';
 
 const AllDocumentsPage = () => {
@@ -163,39 +161,7 @@ const AllDocumentsPage = () => {
 
   return (
     <Box minH="100vh" bg="background.primary">
-      <Box
-        bg="primary.800"
-        borderBottom="1px"
-        borderColor="primary.600"
-        px={6}
-        py={4}
-        position="sticky"
-        top={0}
-        zIndex={100}
-      >
-        <HStack justify="space-between">
-          <HStack spacing={4}>
-            <Icon as={FiLock} boxSize={6} color="accent.500" />
-            <Heading size="md" color="white" fontWeight="bold">
-              LOCKET.AI
-            </Heading>
-          </HStack>
-
-          <HStack spacing={4}>
-            <Text color="gray.400" fontSize="sm">
-              {user.username}
-            </Text>
-            <Badge
-              colorScheme={user.role === 'admin' ? 'purple' : 'accent'}
-              fontSize="xs"
-              px={3}
-              py={1}
-            >
-              {user.role}
-            </Badge>
-          </HStack>
-        </HStack>
-      </Box>
+      <AppHeader user={user} />
 
       <Flex h="calc(100vh - 73px)">
         {/* Main Content Area */}
@@ -207,103 +173,76 @@ const AllDocumentsPage = () => {
           transition="all 0.3s ease-in-out"
           mr={previewDocumentId && !viewingDocumentId ? '350px' : '0'}
         >
+          <NavTabs />
+
+          {/* Search Bar */}
           <Box bg="primary.800" borderBottom="1px" borderColor="primary.600">
             <Box px={6} pt={4} pb={2}>
               <SearchBar onSearch={handleSearch} isLoading={isSearching} />
             </Box>
-            
-            <Tabs colorScheme="accent" variant="line" px={6} defaultIndex={1}>
-              <TabList borderBottom="none">
-                <Tab
-                  color="gray.400"
-                  _selected={{ color: 'accent.500', borderColor: 'accent.500' }}
-                  onClick={() => navigate('/')}
-                >
-                  Home
-                </Tab>
-                <Tab
-                  color="gray.400"
-                  _selected={{ color: 'accent.500', borderColor: 'accent.500' }}
-                >
-                  Documents
-                </Tab>
-                <Tab
-                  color="gray.400"
-                  _selected={{ color: 'accent.500', borderColor: 'accent.500' }}
-                  onClick={() => navigate('/my-uploads')}
-                >
-                  My Uploads
-                </Tab>
-                <Tab
-                  color="gray.400"
-                  _selected={{ color: 'accent.500', borderColor: 'accent.500' }}
-                  onClick={() => navigate('/upload')}
-                >
-                  Upload
-                </Tab>
-              </TabList>
-            </Tabs>
           </Box>
 
           <Box flex={1} overflowY="auto" p={6}>
-            {viewingDocumentId ? (
-              <DocumentViewer
-                documentId={viewingDocumentId}
-                onClose={handleCloseViewer}
-              />
-            ) : searchQuery ? (
-              <SearchResults
-                results={searchResults}
-                query={searchQuery}
-                searchTime={searchTime}
-                isLoading={isSearching}
-                onViewDocument={handleViewDocument}
-                onSearchUpdate={handleSearchUpdate}
-              />
-            ) : (
-              <Box maxW="100%">
-                <HStack justify="space-between" mb={4}>
-                  <Text fontSize="xl" fontWeight="bold" color="white">
-                    All Documents
-                  </Text>
-                  <ButtonGroup size="sm" isAttached variant="outline">
-                    <Tooltip label="Card view">
-                      <IconButton
-                        icon={<FiGrid />}
-                        onClick={() => handleViewModeChange('card')}
-                        aria-label="Card view"
-                        colorScheme={viewMode === 'card' ? 'accent' : 'gray'}
-                        bg={viewMode === 'card' ? 'accent.500' : 'transparent'}
-                        color={viewMode === 'card' ? 'white' : 'gray.400'}
-                        _hover={{
-                          bg: viewMode === 'card' ? 'accent.600' : 'primary.700',
-                        }}
-                      />
-                    </Tooltip>
-                    <Tooltip label="List view">
-                      <IconButton
-                        icon={<FiList />}
-                        onClick={() => handleViewModeChange('list')}
-                        aria-label="List view"
-                        colorScheme={viewMode === 'list' ? 'accent' : 'gray'}
-                        bg={viewMode === 'list' ? 'accent.500' : 'transparent'}
-                        color={viewMode === 'list' ? 'white' : 'gray.400'}
-                        _hover={{
-                          bg: viewMode === 'list' ? 'accent.600' : 'primary.700',
-                        }}
-                      />
-                    </Tooltip>
-                  </ButtonGroup>
-                </HStack>
-                <DocumentList
-                  documents={documents}
-                  onViewDocument={handleViewDocument}
-                  onDelete={handleSearchUpdate}
-                  emptyMessage="No documents in the system"
-                  viewMode={viewMode}
+            <PageTransition>
+              {viewingDocumentId ? (
+                <DocumentViewer
+                  documentId={viewingDocumentId}
+                  onClose={handleCloseViewer}
                 />
-              </Box>
-            )}
+              ) : searchQuery ? (
+                <SearchResults
+                  results={searchResults}
+                  query={searchQuery}
+                  searchTime={searchTime}
+                  isLoading={isSearching}
+                  onViewDocument={handleViewDocument}
+                  onSearchUpdate={handleSearchUpdate}
+                />
+              ) : (
+                <Box maxW="100%">
+                  <HStack justify="space-between" mb={4}>
+                    <Text fontSize="xl" fontWeight="bold" color="white">
+                      All Documents
+                    </Text>
+                    <ButtonGroup size="sm" isAttached variant="outline">
+                      <Tooltip label="Card view">
+                        <IconButton
+                          icon={<FiGrid />}
+                          onClick={() => handleViewModeChange('card')}
+                          aria-label="Card view"
+                          colorScheme={viewMode === 'card' ? 'accent' : 'gray'}
+                          bg={viewMode === 'card' ? 'accent.500' : 'transparent'}
+                          color={viewMode === 'card' ? 'white' : 'gray.400'}
+                          _hover={{
+                            bg: viewMode === 'card' ? 'accent.600' : 'primary.700',
+                          }}
+                        />
+                      </Tooltip>
+                      <Tooltip label="List view">
+                        <IconButton
+                          icon={<FiList />}
+                          onClick={() => handleViewModeChange('list')}
+                          aria-label="List view"
+                          colorScheme={viewMode === 'list' ? 'accent' : 'gray'}
+                          bg={viewMode === 'list' ? 'accent.500' : 'transparent'}
+                          color={viewMode === 'list' ? 'white' : 'gray.400'}
+                          _hover={{
+                            bg: viewMode === 'list' ? 'accent.600' : 'primary.700',
+                          }}
+                        />
+                      </Tooltip>
+                    </ButtonGroup>
+                  </HStack>
+                  <DocumentList
+                    documents={documents}
+                    onViewDocument={handleViewDocument}
+                    onDelete={handleSearchUpdate}
+                    emptyMessage="No documents in the system"
+                    viewMode={viewMode}
+                  />
+                </Box>
+              )}
+            </PageTransition>
           </Box>
         </Box>
 
@@ -311,7 +250,7 @@ const AllDocumentsPage = () => {
         <Box
           position="fixed"
           right={0}
-          top="59px"
+          top="73px"
           bottom={0}
           w="350px"
           transform={`translateX(${previewDocumentId && !viewingDocumentId ? '0' : '100%'})`}
