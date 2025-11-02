@@ -15,3 +15,13 @@ body {
 #root {
   min-height: 100vh;
 }
+
+/* Hide scrollbars */
+::-webkit-scrollbar {
+  display: none;
+}
+
+* {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

@@ -1,10 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   Box,
-  VStack,
   HStack,
   Text,
-  Button,
   Table,
   Thead,
   Tbody,
@@ -22,39 +20,18 @@ import {
   AlertDialogOverlay,
   useDisclosure,
   Spinner,
+  IconButton,
+  Button,
 } from '@chakra-ui/react';
 import { FiFile, FiEye, FiTrash2 } from 'react-icons/fi';
 import { documentsAPI } from '../utils/api';
 import { formatFileSize, formatDate, getFileTypeColor } from '../utils/formatters';
 
-const DocumentList = ({ refreshTrigger, onViewDocument }) => {
-  const [documents, setDocuments] = useState([]);
-  const [loading, setLoading] = useState(true);
+const DocumentList = ({ documents = [], onViewDocument, onDelete, emptyMessage = 'No documents found', loading = false }) => {
   const [deleteId, setDeleteId] = useState(null);
   const { isOpen, onOpen, onClose } = useDisclosure();
   const toast = useToast();
-
-  const fetchDocuments = async () => {
-    try {
-      setLoading(true);
-      const response = await documentsAPI.list();
-      setDocuments(response.data);
-    } catch (error) {
-      toast({
-        title: 'Failed to load documents',
-        description: error.response?.data?.detail || 'An error occurred',
-        status: 'error',
-        duration: 5000,
-        isClosable: true,
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchDocuments();
-  }, [refreshTrigger]);
+  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
 
   const handleDeleteClick = (documentId) => {
     setDeleteId(documentId);
@@ -72,8 +49,9 @@ const DocumentList = ({ refreshTrigger, onViewDocument }) => {
         isClosable: true,
       });
 
-      // Refresh list
-      fetchDocuments();
+      if (onDelete) {
+        onDelete();
+      }
     } catch (error) {
       toast({
         title: 'Delete failed',
@@ -88,28 +66,35 @@ const DocumentList = ({ refreshTrigger, onViewDocument }) => {
     }
   };
 
+  const canDelete = (doc) => {
+    return currentUser.role === 'admin' || doc.uploaded_by_username === currentUser.username;
+  };
+
   const getFileExtension = (filename) => {
     return filename.split('.').pop().toUpperCase();
   };
 
+  const handleTitleClick = (documentId) => {
+    if (onViewDocument) {
+      onViewDocument(documentId);
+    }
+  };
+
   if (loading) {
     return (
-      <Box bg="white" p={8} rounded="lg" shadow="md" textAlign="center">
-        <Spinner size="xl" color="blue.500" />
-        <Text mt={4} color="gray.600">Loading documents...</Text>
+      <Box bg="primary.800" p={8} rounded="lg" border="1px" borderColor="primary.600" textAlign="center">
+        <Spinner size="xl" color="accent.500" thickness="4px" />
+        <Text mt={4} color="gray.400">Loading documents...</Text>
       </Box>
     );
   }
 
-  if (documents.length === 0) {
+  if (!documents || documents.length === 0) {
     return (
-      <Box bg="white" p={8} rounded="lg" shadow="md" textAlign="center">
-        <Icon as={FiFile} boxSize={16} color="gray.300" />
-        <Text mt={4} fontSize="lg" color="gray.600">
-          No documents uploaded yet
-        </Text>
-        <Text color="gray.500" fontSize="sm">
-          Upload your first document to get started
+      <Box bg="primary.800" p={12} rounded="lg" border="1px" borderColor="primary.600" textAlign="center">
+        <Icon as={FiFile} boxSize={20} color="primary.500" />
+        <Text mt={6} fontSize="xl" color="gray.300" fontWeight="semibold">
+          {emptyMessage}
         </Text>
       </Box>
     );
@@ -117,83 +102,90 @@ const DocumentList = ({ refreshTrigger, onViewDocument }) => {
 
   return (
     <>
-      <Box bg="white" rounded="lg" shadow="md" overflow="hidden">
-        <Box p={6} borderBottom="1px" borderColor="gray.200">
-          <HStack justify="space-between">
-            <Text fontSize="lg" fontWeight="bold" color="gray.800">
-              All Documents
-            </Text>
-            <Badge colorScheme="blue" fontSize="md" px={3} py={1}>
-              {documents.length} {documents.length === 1 ? 'Document' : 'Documents'}
-            </Badge>
-          </HStack>
-        </Box>
-
+      <Box bg="primary.800" rounded="lg" border="1px" borderColor="primary.600" overflow="hidden">
         <Box overflowX="auto">
-          <Table variant="simple">
-            <Thead bg="gray.50">
+          <Table variant="simple" size="md">
+            <Thead bg="primary.700">
               <Tr>
-                <Th>Document</Th>
-                <Th>Type</Th>
-                <Th>Size</Th>
-                <Th>Pages</Th>
-                <Th>Uploaded By</Th>
-                <Th>Uploaded</Th>
-                <Th>Actions</Th>
+                <Th color="gray.400" borderColor="primary.600">Name</Th>
+                <Th color="gray.400" borderColor="primary.600">Date Uploaded</Th>
+                <Th color="gray.400" borderColor="primary.600">Type</Th>
+                <Th color="gray.400" borderColor="primary.600">User Group</Th>
+                <Th color="gray.400" borderColor="primary.600">Size</Th>
+                <Th color="gray.400" borderColor="primary.600">Actions</Th>
               </Tr>
             </Thead>
             <Tbody>
               {documents.map((doc) => (
-                <Tr key={doc.id} _hover={{ bg: 'gray.50' }}>
-                  <Td>
+                <Tr key={doc.id} _hover={{ bg: 'primary.700' }} transition="background 0.2s">
+                  <Td borderColor="primary.600">
                     <HStack spacing={3}>
-                      <Icon as={FiFile} boxSize={5} color={`${getFileTypeColor(doc.filename)}.500`} />
-                      <Text fontWeight="medium" color="gray.800">
+                      <Icon as={FiFile} boxSize={5} color="red.400" />
+                      <Text 
+                        color="gray.200" 
+                        fontWeight="medium"
+                        cursor="pointer"
+                        transition="color 0.2s"
+                        _hover={{ 
+                          color: 'accent.400',
+                          textDecoration: 'underline'
+                        }}
+                        onClick={() => handleTitleClick(doc.id)}
+                        title="Click to preview document"
+                      >
                         {doc.filename}
                       </Text>
                     </HStack>
                   </Td>
-                  <Td>
-                    <Badge colorScheme={getFileTypeColor(doc.filename)}>
-                      {getFileExtension(doc.filename)}
-                    </Badge>
-                  </Td>
-                  <Td>
-                    <Text color="gray.600">{formatFileSize(doc.file_size)}</Text>
-                  </Td>
-                  <Td>
-                    <Text color="gray.600">{doc.page_count}</Text>
-                  </Td>
-                  <Td>
-                    <Badge colorScheme="purple" variant="subtle">
-                      {doc.uploaded_by_username}
-                    </Badge>
-                  </Td>
-                  <Td>
-                    <Text color="gray.600" fontSize="sm">
+                  <Td borderColor="primary.600">
+                    <Text color="gray.300" fontSize="sm">
                       {formatDate(doc.uploaded_at)}
                     </Text>
                   </Td>
-                  <Td>
-                    <HStack spacing={2}>
-                      <Button
+                  <Td borderColor="primary.600">
+                    <Badge
+                      colorScheme={getFileTypeColor(doc.filename)}
+                      fontSize="xs"
+                      px={2}
+                      py={1}
+                    >
+                      {getFileExtension(doc.filename)}
+                    </Badge>
+                  </Td>
+                  <Td borderColor="primary.600">
+                    <Text color="gray.300" fontSize="sm">
+                      {doc.uploaded_by_username}
+                    </Text>
+                  </Td>
+                  <Td borderColor="primary.600">
+                    <Text color="gray.300" fontSize="sm">
+                      {formatFileSize(doc.file_size)}
+                    </Text>
+                  </Td>
+                  <Td borderColor="primary.600">
+                    <HStack spacing={1}>
+                      <IconButton
+                        icon={<FiEye />}
                         size="sm"
-                        colorScheme="blue"
                         variant="ghost"
-                        leftIcon={<FiEye />}
+                        colorScheme="accent"
                         onClick={() => onViewDocument(doc.id)}
-                      >
-                        View
-                      </Button>
-                      <Button
-                        size="sm"
-                        colorScheme="red"
-                        variant="ghost"
-                        leftIcon={<FiTrash2 />}
-                        onClick={() => handleDeleteClick(doc.id)}
-                      >
-                        Delete
-                      </Button>
+                        aria-label="View document"
+                        color="accent.400"
+                        _hover={{ bg: 'accent.500', color: 'white' }}
+                      />
+                      {canDelete(doc) && (
+                        <IconButton
+                          icon={<FiTrash2 />}
+                          size="sm"
+                          variant="ghost"
+                          colorScheme="red"
+                          onClick={() => handleDeleteClick(doc.id)}
+                          aria-label="Delete document"
+                          color="red.400"
+                          _hover={{ bg: 'red.500', color: 'white' }}
+                        />
+                      )}
                     </HStack>
                   </Td>
                 </Tr>
@@ -203,23 +195,28 @@ const DocumentList = ({ refreshTrigger, onViewDocument }) => {
         </Box>
       </Box>
 
-      {/* Delete Confirmation Dialog */}
       <AlertDialog isOpen={isOpen} onClose={onClose}>
         <AlertDialogOverlay>
-          <AlertDialogContent>
-            <AlertDialogHeader fontSize="lg" fontWeight="bold">
+          <AlertDialogContent bg="primary.800" border="1px" borderColor="primary.600">
+            <AlertDialogHeader fontSize="lg" fontWeight="bold" color="white">
               Delete Document
             </AlertDialogHeader>
 
-            <AlertDialogBody>
+            <AlertDialogBody color="gray.300">
               Are you sure you want to delete this document? This action cannot be undone.
             </AlertDialogBody>
 
             <AlertDialogFooter>
-              <Button onClick={onClose}>
+              <Button onClick={onClose} variant="ghost" color="gray.400">
                 Cancel
               </Button>
-              <Button colorScheme="red" onClick={handleDeleteConfirm} ml={3}>
+              <Button
+                colorScheme="red"
+                onClick={handleDeleteConfirm}
+                ml={3}
+                bg="red.500"
+                _hover={{ bg: 'red.600' }}
+              >
                 Delete
               </Button>
             </AlertDialogFooter>

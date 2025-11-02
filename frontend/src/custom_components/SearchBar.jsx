@@ -17,7 +17,7 @@ const SearchBar = ({ onSearch, isLoading }) => {
     if (query.trim()) {
       onSearch(query.trim());
     } else {
-      onSearch(''); // Empty search returns to default view
+      onSearch('');
     }
   };
 
@@ -29,25 +29,30 @@ const SearchBar = ({ onSearch, isLoading }) => {
 
   const handleClear = () => {
     setQuery('');
-    onSearch(''); // Clear search and return to default view
+    onSearch('');
   };
 
   return (
     <Box>
       <InputGroup size="lg">
         <InputLeftElement pointerEvents="none">
-          <Icon as={FiSearch} color="gray.400" />
+          <Icon as={FiSearch} color="gray.500" />
         </InputLeftElement>
         <Input
-          placeholder="Search documents by content, title, or keywords..."
+          placeholder="Search for a document..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyPress={handleKeyPress}
-          bg="white"
-          borderColor="gray.300"
-          _hover={{ borderColor: 'blue.300' }}
-          _focus={{ borderColor: 'blue.400', boxShadow: '0 0 0 1px var(--chakra-colors-blue-400)' }}
-          pr={query ? '40px' : '16px'}
+          bg="primary.700"
+          borderColor="primary.500"
+          color="white"
+          _placeholder={{ color: 'gray.500' }}
+          _hover={{ borderColor: 'accent.500' }}
+          _focus={{
+            borderColor: 'accent.500',
+            boxShadow: '0 0 0 1px var(--chakra-colors-accent-500)',
+          }}
+          pr={query ? '50px' : '16px'}
         />
         {query && (
           <InputRightElement>
@@ -58,6 +63,8 @@ const SearchBar = ({ onSearch, isLoading }) => {
               variant="ghost"
               onClick={handleClear}
               isDisabled={isLoading}
+              color="gray.400"
+              _hover={{ color: 'white', bg: 'primary.600' }}
             />
           </InputRightElement>
         )}

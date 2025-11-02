@@ -17,6 +17,7 @@ import {
   AlertDialogContent,
   AlertDialogOverlay,
   useDisclosure,
+  IconButton,
 } from '@chakra-ui/react';
 import { FiFile, FiEye, FiZap, FiTrash2 } from 'react-icons/fi';
 import { formatFileSize, formatDate, getFileTypeColor } from '../utils/formatters';
@@ -44,7 +45,6 @@ const SearchResults = ({ results, query, searchTime, isLoading, onViewDocument, 
         isClosable: true,
       });
 
-      // Trigger search update to refresh results
       if (onSearchUpdate) {
         onSearchUpdate();
       }
@@ -72,8 +72,9 @@ const SearchResults = ({ results, query, searchTime, isLoading, onViewDocument, 
 
   if (isLoading) {
     return (
-      <Box bg="white" p={8} rounded="lg" shadow="md" textAlign="center">
-        <Spinner size="xl" color="blue.500" />
+      <Box bg="primary.800" p={12} rounded="lg" border="1px" borderColor="primary.600" textAlign="center">
+        <Spinner size="xl" color="accent.500" thickness="4px" />
+        <Text mt={4} color="gray.400">Searching documents...</Text>
       </Box>
     );
   }
@@ -84,12 +85,12 @@ const SearchResults = ({ results, query, searchTime, isLoading, onViewDocument, 
     }
 
     return (
-      <Box bg="white" p={8} rounded="lg" shadow="md" textAlign="center">
-        <Icon as={FiFile} boxSize={16} color="gray.300" />
-        <Text mt={4} fontSize="lg" color="gray.600" fontWeight="medium">
+      <Box bg="primary.800" p={12} rounded="lg" border="1px" borderColor="primary.600" textAlign="center">
+        <Icon as={FiFile} boxSize={20} color="primary.500" />
+        <Text mt={6} fontSize="xl" color="gray.300" fontWeight="semibold">
           No results found for "{query}"
         </Text>
-        <Text color="gray.500" fontSize="sm" mt={2}>
+        <Text color="gray.500" fontSize="md" mt={2}>
           Try different keywords or check your spelling
         </Text>
       </Box>
@@ -98,55 +99,53 @@ const SearchResults = ({ results, query, searchTime, isLoading, onViewDocument, 
 
   return (
     <>
-      <Box bg="white" rounded="lg" shadow="md" overflow="hidden">
+      <Box bg="primary.800" rounded="lg" border="1px" borderColor="primary.600" overflow="hidden">
         {/* Header */}
-        <Box p={4} bg="blue.50" borderBottom="1px" borderColor="blue.100">
+        <Box p={5} bg="primary.700" borderBottom="1px" borderColor="primary.600">
           <HStack justify="space-between">
-            <HStack spacing={2}>
-              <Icon as={FiZap} color="blue.600" />
-              <Text fontWeight="bold" color="blue.900">
+            <HStack spacing={3}>
+              <Icon as={FiZap} color="accent.500" boxSize={5} />
+              <Text fontWeight="bold" color="white" fontSize="lg">
                 Found {results.length} result{results.length !== 1 ? 's' : ''} for "{query}"
               </Text>
             </HStack>
-            <Text fontSize="sm" color="blue.700">
+            <Badge colorScheme="accent" fontSize="sm" px={3} py={1}>
               {searchTime}ms
-            </Text>
+            </Badge>
           </HStack>
         </Box>
 
         {/* Results */}
-        <VStack spacing={0} align="stretch" divider={<Divider />}>
+        <VStack spacing={0} align="stretch" divider={<Divider borderColor="primary.600" />}>
           {results.map((result) => (
             <Box
               key={result.id}
-              p={5}
-              _hover={{ bg: 'gray.50' }}
+              p={6}
+              _hover={{ bg: 'primary.700' }}
               transition="background 0.2s"
             >
-              <VStack align="stretch" spacing={3}>
+              <VStack align="stretch" spacing={4}>
                 {/* Title and metadata */}
                 <HStack justify="space-between" align="start">
-                  <HStack spacing={3} flex={1}>
+                  <HStack spacing={4} flex={1}>
                     <Icon
                       as={FiFile}
-                      boxSize={5}
-                      color={`${getFileTypeColor(result.filename)}.500`}
+                      boxSize={6}
+                      color={`${getFileTypeColor(result.filename)}.400`}
                     />
-                    <VStack align="start" spacing={1} flex={1}>
-                      <Text fontWeight="bold" fontSize="lg" color="gray.800">
+                    <VStack align="start" spacing={2} flex={1}>
+                      <Text fontWeight="bold" fontSize="lg" color="white">
                         {result.filename}
                       </Text>
-                      <HStack spacing={3} fontSize="sm" color="gray.600">
-                        <Badge colorScheme={getFileTypeColor(result.filename)}>
+                      <HStack spacing={3} fontSize="sm" color="gray.400" flexWrap="wrap">
+                        <Badge colorScheme={getFileTypeColor(result.filename)} fontSize="xs">
                           {getFileExtension(result.filename)}
                         </Badge>
                         <Text>{formatFileSize(result.file_size)}</Text>
                         <Text>•</Text>
                         <Text>{result.page_count} {result.page_count === 1 ? 'page' : 'pages'}</Text>
                         <Text>•</Text>
-                        <Badge colorScheme="purple" variant="subtle">
-                          {result.uploaded_by_username}
-                        </Badge>
+                        <Text>{result.uploaded_by_username}</Text>
                         <Text>•</Text>
                         <Text>{formatDate(result.uploaded_at)}</Text>
                       </HStack>
@@ -154,25 +153,27 @@ const SearchResults = ({ results, query, searchTime, isLoading, onViewDocument, 
                   </HStack>
 
                   <HStack spacing={2}>
-                    <Button
+                    <IconButton
+                      icon={<FiEye />}
                       size="sm"
-                      colorScheme="blue"
                       variant="ghost"
-                      leftIcon={<FiEye />}
+                      colorScheme="accent"
                       onClick={() => onViewDocument(result.id)}
-                    >
-                      View
-                    </Button>
+                      aria-label="View document"
+                      color="accent.400"
+                      _hover={{ bg: 'accent.500', color: 'white' }}
+                    />
                     {canDelete(result) && (
-                      <Button
+                      <IconButton
+                        icon={<FiTrash2 />}
                         size="sm"
-                        colorScheme="red"
                         variant="ghost"
-                        leftIcon={<FiTrash2 />}
+                        colorScheme="red"
                         onClick={() => handleDeleteClick(result.id)}
-                      >
-                        Delete
-                      </Button>
+                        aria-label="Delete document"
+                        color="red.400"
+                        _hover={{ bg: 'red.500', color: 'white' }}
+                      />
                     )}
                   </HStack>
                 </HStack>
@@ -180,13 +181,13 @@ const SearchResults = ({ results, query, searchTime, isLoading, onViewDocument, 
                 {/* Snippet */}
                 {result.snippet && (
                   <Box
-                    bg="gray.50"
-                    p={3}
+                    bg="primary.900"
+                    p={4}
                     rounded="md"
                     fontSize="sm"
-                    color="gray.700"
+                    color="gray.300"
                     borderLeft="3px solid"
-                    borderColor="blue.400"
+                    borderColor="accent.500"
                   >
                     <Text lineHeight="tall">{result.snippet}</Text>
                   </Box>
@@ -200,20 +201,26 @@ const SearchResults = ({ results, query, searchTime, isLoading, onViewDocument, 
       {/* Delete Confirmation Dialog */}
       <AlertDialog isOpen={isOpen} onClose={onClose}>
         <AlertDialogOverlay>
-          <AlertDialogContent>
-            <AlertDialogHeader fontSize="lg" fontWeight="bold">
+          <AlertDialogContent bg="primary.800" border="1px" borderColor="primary.600">
+            <AlertDialogHeader fontSize="lg" fontWeight="bold" color="white">
               Delete Document
             </AlertDialogHeader>
 
-            <AlertDialogBody>
+            <AlertDialogBody color="gray.300">
               Are you sure you want to delete this document? This action cannot be undone.
             </AlertDialogBody>
 
             <AlertDialogFooter>
-              <Button onClick={onClose}>
+              <Button onClick={onClose} variant="ghost" color="gray.400">
                 Cancel
               </Button>
-              <Button colorScheme="red" onClick={handleDeleteConfirm} ml={3}>
+              <Button
+                colorScheme="red"
+                onClick={handleDeleteConfirm}
+                ml={3}
+                bg="red.500"
+                _hover={{ bg: 'red.600' }}
+              >
                 Delete
               </Button>
             </AlertDialogFooter>

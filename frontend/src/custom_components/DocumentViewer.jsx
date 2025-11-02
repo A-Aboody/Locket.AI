@@ -19,7 +19,6 @@ import {
 } from '@chakra-ui/react';
 import { FiX, FiFile, FiDownload, FiZoomIn, FiZoomOut, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import { Document, Page, pdfjs } from 'react-pdf';
-import * as mammoth from 'mammoth';
 import { renderAsync } from 'docx-preview';
 import { documentsAPI } from '../utils/api';
 import { formatFileSize, formatDate, getFileTypeColor } from '../utils/formatters';
@@ -27,7 +26,6 @@ import { formatFileSize, formatDate, getFileTypeColor } from '../utils/formatter
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
-// Configure PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 const DocumentViewer = ({ documentId, onClose }) => {
@@ -36,21 +34,16 @@ const DocumentViewer = ({ documentId, onClose }) => {
   const [viewerLoading, setViewerLoading] = useState(false);
   const toast = useToast();
   
-  // PDF state
   const [numPages, setNumPages] = useState(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [scale, setScale] = useState(1.0);
   
-  // File data
   const [fileBlob, setFileBlob] = useState(null);
   const [fileType, setFileType] = useState(null);
   const [extractedContent, setExtractedContent] = useState('');
   
-  // Refs
   const docxContainerRef = useRef(null);
-  
-  // View mode
-  const [viewMode, setViewMode] = useState('native'); // 'native' or 'text'
+  const [viewMode, setViewMode] = useState('native');
 
   useEffect(() => {
     fetchDocument();
@@ -60,16 +53,13 @@ const DocumentViewer = ({ documentId, onClose }) => {
     try {
       setLoading(true);
       
-      // Fetch metadata
       const metaResponse = await documentsAPI.get(documentId);
       const docData = metaResponse.data;
       setDocument(docData);
       
-      // Determine file type
       const extension = docData.filename.split('.').pop().toLowerCase();
       setFileType(extension);
       
-      // Fetch extracted text content
       try {
         const contentResponse = await documentsAPI.getContent(documentId);
         setExtractedContent(contentResponse.data.content);
@@ -77,7 +67,6 @@ const DocumentViewer = ({ documentId, onClose }) => {
         console.warn('Could not fetch extracted content:', err);
       }
       
-      // Fetch actual file for native rendering
       if (['pdf', 'docx', 'doc'].includes(extension)) {
         setViewerLoading(true);
         const fileResponse = await documentsAPI.downloadFile(documentId);
@@ -128,7 +117,6 @@ const DocumentViewer = ({ documentId, onClose }) => {
     }
   };
 
-  // PDF rendering
   const onDocumentLoadSuccess = ({ numPages }) => {
     setNumPages(numPages);
     setPageNumber(1);
@@ -144,7 +132,6 @@ const DocumentViewer = ({ documentId, onClose }) => {
   const zoomIn = () => setScale(prev => Math.min(prev + 0.25, 3.0));
   const zoomOut = () => setScale(prev => Math.max(prev - 0.25, 0.5));
 
-  // DOCX rendering
   useEffect(() => {
     if (fileBlob && fileType === 'docx' && docxContainerRef.current && viewMode === 'native') {
       renderDocx();
@@ -191,9 +178,9 @@ const DocumentViewer = ({ documentId, onClose }) => {
 
   if (loading) {
     return (
-      <Box bg="white" p={8} rounded="lg" shadow="md" textAlign="center">
-        <Spinner size="xl" color="blue.500" />
-        <Text mt={4} color="gray.600">Loading document...</Text>
+      <Box bg="primary.800" p={12} rounded="lg" border="1px" borderColor="primary.600" textAlign="center">
+        <Spinner size="xl" color="accent.500" thickness="4px" />
+        <Text mt={4} color="gray.400">Loading document...</Text>
       </Box>
     );
   }
@@ -205,18 +192,18 @@ const DocumentViewer = ({ documentId, onClose }) => {
   const canRenderNatively = ['pdf', 'docx', 'doc'].includes(fileType);
 
   return (
-    <Box bg="white" rounded="lg" shadow="md" overflow="hidden">
+    <Box bg="primary.800" rounded="lg" border="1px" borderColor="primary.600" overflow="hidden">
       {/* Header */}
-      <Box bg="gray.50" p={4} borderBottom="1px" borderColor="gray.200">
+      <Box bg="primary.700" p={4} borderBottom="1px" borderColor="primary.600">
         <HStack justify="space-between">
-          <HStack spacing={3}>
-            <Icon as={FiFile} boxSize={6} color={`${getFileTypeColor(document.filename)}.500`} />
-            <VStack align="start" spacing={0}>
-              <Text fontWeight="bold" fontSize="lg" color="gray.800">
+          <HStack spacing={4}>
+            <Icon as={FiFile} boxSize={6} color={`${getFileTypeColor(document.filename)}.400`} />
+            <VStack align="start" spacing={1}>
+              <Text fontWeight="bold" fontSize="lg" color="white">
                 {document.filename}
               </Text>
-              <HStack spacing={3} fontSize="sm" color="gray.600">
-                <Badge colorScheme={getFileTypeColor(document.filename)}>
+              <HStack spacing={3} fontSize="sm" color="gray.400">
+                <Badge colorScheme={getFileTypeColor(document.filename)} fontSize="xs">
                   {getFileExtension(document.filename)}
                 </Badge>
                 <Text>{formatFileSize(document.file_size)}</Text>
@@ -232,8 +219,10 @@ const DocumentViewer = ({ documentId, onClose }) => {
               size="sm"
               leftIcon={<FiDownload />}
               onClick={handleDownload}
-              colorScheme="blue"
+              colorScheme="accent"
               variant="ghost"
+              color="accent.400"
+              _hover={{ bg: 'accent.500', color: 'white' }}
             >
               Download
             </Button>
@@ -242,6 +231,8 @@ const DocumentViewer = ({ documentId, onClose }) => {
               variant="ghost"
               leftIcon={<FiX />}
               onClick={onClose}
+              color="gray.400"
+              _hover={{ color: 'white', bg: 'primary.600' }}
             >
               Close
             </Button>
@@ -251,8 +242,8 @@ const DocumentViewer = ({ documentId, onClose }) => {
 
       {/* Viewer Controls (for PDF) */}
       {fileType === 'pdf' && viewMode === 'native' && numPages && (
-        <Box bg="gray.100" p={3} borderBottom="1px" borderColor="gray.200">
-          <HStack justify="center" spacing={4}>
+        <Box bg="primary.900" p={3} borderBottom="1px" borderColor="primary.600">
+          <HStack justify="center" spacing={6}>
             <HStack>
               <IconButton
                 icon={<FiChevronLeft />}
@@ -260,8 +251,11 @@ const DocumentViewer = ({ documentId, onClose }) => {
                 isDisabled={pageNumber <= 1}
                 size="sm"
                 aria-label="Previous page"
+                variant="ghost"
+                color="gray.400"
+                _hover={{ bg: 'primary.700', color: 'white' }}
               />
-              <Text fontSize="sm" fontWeight="medium">
+              <Text fontSize="sm" fontWeight="medium" color="gray.300" minW="120px" textAlign="center">
                 Page {pageNumber} of {numPages}
               </Text>
               <IconButton
@@ -270,10 +264,13 @@ const DocumentViewer = ({ documentId, onClose }) => {
                 isDisabled={pageNumber >= numPages}
                 size="sm"
                 aria-label="Next page"
+                variant="ghost"
+                color="gray.400"
+                _hover={{ bg: 'primary.700', color: 'white' }}
               />
             </HStack>
             
-            <Divider orientation="vertical" h={6} />
+            <Divider orientation="vertical" h={6} borderColor="primary.600" />
             
             <HStack>
               <IconButton
@@ -282,8 +279,11 @@ const DocumentViewer = ({ documentId, onClose }) => {
                 isDisabled={scale <= 0.5}
                 size="sm"
                 aria-label="Zoom out"
+                variant="ghost"
+                color="gray.400"
+                _hover={{ bg: 'primary.700', color: 'white' }}
               />
-              <Text fontSize="sm" fontWeight="medium" minW="60px" textAlign="center">
+              <Text fontSize="sm" fontWeight="medium" minW="60px" textAlign="center" color="gray.300">
                 {Math.round(scale * 100)}%
               </Text>
               <IconButton
@@ -292,6 +292,9 @@ const DocumentViewer = ({ documentId, onClose }) => {
                 isDisabled={scale >= 3.0}
                 size="sm"
                 aria-label="Zoom in"
+                variant="ghost"
+                color="gray.400"
+                _hover={{ bg: 'primary.700', color: 'white' }}
               />
             </HStack>
           </HStack>
@@ -302,13 +305,18 @@ const DocumentViewer = ({ documentId, onClose }) => {
       <Box>
         {canRenderNatively && extractedContent ? (
           <Tabs 
-            colorScheme="blue" 
+            colorScheme="accent" 
             index={viewMode === 'native' ? 0 : 1}
             onChange={(index) => setViewMode(index === 0 ? 'native' : 'text')}
+            variant="line"
           >
-            <TabList px={4}>
-              <Tab>Document View</Tab>
-              <Tab>Text View</Tab>
+            <TabList px={4} bg="primary.900" borderBottom="1px" borderColor="primary.600">
+              <Tab color="gray.400" _selected={{ color: 'accent.500', borderColor: 'accent.500' }}>
+                Document View
+              </Tab>
+              <Tab color="gray.400" _selected={{ color: 'accent.500', borderColor: 'accent.500' }}>
+                Text View
+              </Tab>
             </TabList>
 
             <TabPanels>
@@ -316,16 +324,16 @@ const DocumentViewer = ({ documentId, onClose }) => {
                 <Box 
                   maxH="70vh" 
                   overflowY="auto" 
-                  bg="gray.100"
+                  bg="primary.900"
                   display="flex"
                   flexDirection="column"
                   alignItems="center"
                   p={4}
                 >
                   {viewerLoading && (
-                    <Box textAlign="center" py={8}>
-                      <Spinner size="xl" color="blue.500" />
-                      <Text mt={4} color="gray.600">Rendering document...</Text>
+                    <Box textAlign="center" py={12}>
+                      <Spinner size="xl" color="accent.500" thickness="4px" />
+                      <Text mt={4} color="gray.400">Rendering document...</Text>
                     </Box>
                   )}
                   
@@ -334,9 +342,9 @@ const DocumentViewer = ({ documentId, onClose }) => {
                       file={fileBlob}
                       onLoadSuccess={onDocumentLoadSuccess}
                       loading={
-                        <Box textAlign="center" py={8}>
-                          <Spinner size="xl" color="blue.500" />
-                          <Text mt={4} color="gray.600">Loading PDF...</Text>
+                        <Box textAlign="center" py={12}>
+                          <Spinner size="xl" color="accent.500" thickness="4px" />
+                          <Text mt={4} color="gray.400">Loading PDF...</Text>
                         </Box>
                       }
                     >
@@ -358,38 +366,30 @@ const DocumentViewer = ({ documentId, onClose }) => {
                       p={6}
                       rounded="md"
                       shadow="sm"
-                      sx={{
-                        '& .docx-wrapper': {
-                          background: 'white',
-                        },
-                        '& .docx': {
-                          background: 'white',
-                        }
-                      }}
                     />
                   )}
                 </Box>
               </TabPanel>
 
               <TabPanel p={0}>
-                <Box p={6} maxH="70vh" overflowY="auto">
+                <Box p={6} maxH="70vh" overflowY="auto" bg="primary.900">
                   {extractedContent ? (
                     <Box
-                      bg="gray.50"
+                      bg="primary.800"
                       p={6}
                       rounded="md"
                       border="1px"
-                      borderColor="gray.200"
+                      borderColor="primary.600"
                       fontFamily="mono"
                       fontSize="sm"
                       whiteSpace="pre-wrap"
-                      color="gray.800"
+                      color="gray.300"
                       lineHeight="tall"
                     >
                       {extractedContent}
                     </Box>
                   ) : (
-                    <Box textAlign="center" py={8}>
+                    <Box textAlign="center" py={12}>
                       <Text color="gray.500">
                         No text content available
                       </Text>
@@ -400,24 +400,24 @@ const DocumentViewer = ({ documentId, onClose }) => {
             </TabPanels>
           </Tabs>
         ) : (
-          <Box p={6} maxH="70vh" overflowY="auto">
+          <Box p={6} maxH="70vh" overflowY="auto" bg="primary.900">
             {extractedContent ? (
               <Box
-                bg="gray.50"
+                bg="primary.800"
                 p={6}
                 rounded="md"
                 border="1px"
-                borderColor="gray.200"
+                borderColor="primary.600"
                 fontFamily="mono"
                 fontSize="sm"
                 whiteSpace="pre-wrap"
-                color="gray.800"
+                color="gray.300"
                 lineHeight="tall"
               >
                 {extractedContent}
               </Box>
             ) : (
-              <Box textAlign="center" py={8}>
+              <Box textAlign="center" py={12}>
                 <Text color="gray.500">
                   No text content could be extracted from this document
                 </Text>
