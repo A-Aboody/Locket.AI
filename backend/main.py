@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import List, Optional, Dict
 import os
 import uuid
 import traceback
@@ -694,7 +694,9 @@ def create_user_group(
             )
     
     group = crud.create_user_group(db, group_data, current_user.id)
-    return group
+    
+    # Format the response to include user details
+    return format_user_group_response(group)
 
 
 @app.get("/api/user-groups", response_model=List[schemas.UserGroupResponse])
@@ -706,7 +708,13 @@ def get_user_groups(
     Get all user groups that the current user is member of
     """
     groups = crud.get_user_groups_for_user(db, current_user.id)
-    return groups
+    
+    # Format each group response
+    formatted_groups = []
+    for group in groups:
+        formatted_groups.append(format_user_group_response(group))
+    
+    return formatted_groups
 
 
 @app.get("/api/user-groups/{group_id}", response_model=schemas.UserGroupResponse)
@@ -732,7 +740,7 @@ def get_user_group(
             detail="Not a member of this group"
         )
     
-    return group
+    return format_user_group_response(group)
 
 
 @app.put("/api/user-groups/{group_id}", response_model=schemas.UserGroupResponse)
@@ -766,7 +774,7 @@ def update_user_group(
             detail="Group not found"
         )
     
-    return updated_group
+    return format_user_group_response(updated_group)
 
 
 @app.post("/api/user-groups/{group_id}/members/{user_id}")
@@ -866,6 +874,35 @@ def delete_user_group(
     return {"message": "Group deleted successfully"}
 
 
+@app.get("/api/user-groups/{group_id}/stats")
+def get_group_stats(
+    group_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get statistics for a user group
+    """
+    group = crud.get_user_group_by_id(db, group_id)
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Group not found"
+        )
+    
+    # Check if user is member of the group
+    if not crud.is_user_in_group(db, current_user.id, group_id) and current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not a member of this group"
+        )
+    
+    # Get group statistics
+    stats = crud.get_group_statistics(db, group_id)
+    
+    return stats
+
+
 @app.get("/api/users/search")
 def search_users(
     query: str,
@@ -883,6 +920,41 @@ def search_users(
     
     users = crud.search_users(db, query, exclude_user_id=current_user.id)
     return users
+
+
+# Helper function to format user group response
+def format_user_group_response(group):
+    """Format user group response with member details"""
+    formatted_members = []
+    
+    # Add creator as first member
+    if group.creator:
+        formatted_members.append({
+            "user_id": group.creator.id,
+            "username": group.creator.username,
+            "email": group.creator.email,
+            "joined_at": group.created_at
+        })
+    
+    # Add other members
+    for member in group.members:
+        if member.user and member.user.id != group.created_by_id:  # Don't duplicate creator
+            formatted_members.append({
+                "user_id": member.user.id,
+                "username": member.user.username,
+                "email": member.user.email,
+                "joined_at": member.joined_at
+            })
+    
+    return {
+        "id": group.id,
+        "name": group.name,
+        "description": group.description,
+        "created_by_id": group.created_by_id,
+        "created_at": group.created_at,
+        "members": formatted_members,
+        "creator_username": group.creator.username if group.creator else None
+    }
 
 
 # Run the application

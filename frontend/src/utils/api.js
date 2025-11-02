@@ -228,14 +228,15 @@ export const apiUtils = {
       }
     ];
     
-    if (userGroups.length > 0) {
-      options.push({
-        value: 'group',
-        label: 'Group',
-        description: 'Only group members can see this document',
-        color: 'accent'
-      });
-    }
+    options.push({
+      value: 'group',
+      label: 'Group',
+      description: userGroups.length > 0 
+        ? 'Only group members can see this document' 
+        : 'Create a group first to use this option',
+      color: 'accent',
+      disabled: userGroups.length === 0
+    });
     
     return options;
   },

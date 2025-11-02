@@ -27,7 +27,7 @@ import {
   AlertTitle,
   AlertDescription,
 } from '@chakra-ui/react';
-import { FiUpload, FiFile, FiX, FiUsers, FiPlus, FiEye, FiEyeOff, FiGlobe } from 'react-icons/fi';
+import { FiUpload, FiFile, FiX, FiUsers, FiEyeOff, FiGlobe } from 'react-icons/fi';
 import { documentsAPI, userGroupsAPI, apiUtils } from '../utils/api';
 
 const DocumentUpload = ({ onUploadSuccess }) => {
@@ -48,12 +48,29 @@ const DocumentUpload = ({ onUploadSuccess }) => {
   const allowedTypes = ['.pdf', '.txt', '.doc', '.docx'];
   const maxSizeMB = 100;
 
-  // Fetch user groups
+  // Fetch user groups when visibility changes to 'group'
+  useEffect(() => {
+    if (visibility === 'group') {
+      fetchUserGroups();
+    }
+  }, [visibility]);
+
   const fetchUserGroups = async () => {
+    setLoadingGroups(true);
     try {
-      setLoadingGroups(true);
       const response = await userGroupsAPI.list();
-      setUserGroups(response.data);
+      const groups = response.data || [];
+      setUserGroups(groups);
+      
+      if (groups.length === 0) {
+        toast({
+          title: 'No groups available',
+          description: 'Create a user group first to share documents with specific users',
+          status: 'info',
+          duration: 5000,
+          isClosable: true,
+        });
+      }
     } catch (error) {
       console.error('Failed to fetch user groups:', error);
       toast({
@@ -63,19 +80,13 @@ const DocumentUpload = ({ onUploadSuccess }) => {
         duration: 5000,
         isClosable: true,
       });
+      setUserGroups([]);
     } finally {
       setLoadingGroups(false);
     }
   };
 
-  useEffect(() => {
-    if (visibility === 'group') {
-      fetchUserGroups();
-    }
-  }, [visibility]);
-
   const validateFile = (file) => {
-    // Check file type
     const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
     if (!allowedTypes.includes(fileExtension)) {
       const errorMsg = `File type not allowed. Supported types: ${allowedTypes.join(', ')}`;
@@ -90,7 +101,6 @@ const DocumentUpload = ({ onUploadSuccess }) => {
       return false;
     }
 
-    // Check file size
     const fileSizeMB = file.size / (1024 * 1024);
     if (fileSizeMB > maxSizeMB) {
       const errorMsg = `File size exceeds maximum allowed size of ${maxSizeMB}MB`;
@@ -144,15 +154,22 @@ const DocumentUpload = ({ onUploadSuccess }) => {
   };
 
   const handleUpload = async () => {
-    if (!selectedFile) return;
+    if (!selectedFile) {
+      toast({
+        title: 'No file selected',
+        description: 'Please select a file to upload',
+        status: 'warning',
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
 
-    // Validate group selection for group visibility
     if (visibility === 'group' && !selectedGroup) {
-      const errorMsg = 'Please select a group for group documents';
-      setUploadError(errorMsg);
+      setUploadError('Please select a group for group documents');
       toast({
         title: 'Group required',
-        description: errorMsg,
+        description: 'Please select a group to share this document with',
         status: 'error',
         duration: 5000,
         isClosable: true,
@@ -165,12 +182,13 @@ const DocumentUpload = ({ onUploadSuccess }) => {
     setUploadError(null);
 
     try {
-      // Prepare form data
-      const formData = apiUtils.prepareUploadData(
-        selectedFile,
-        visibility,
-        selectedGroup?.id
-      );
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      formData.append('visibility', visibility);
+      
+      if (visibility === 'group' && selectedGroup) {
+        formData.append('user_group_id', selectedGroup.id.toString());
+      }
 
       const response = await documentsAPI.upload(
         formData,
@@ -178,7 +196,7 @@ const DocumentUpload = ({ onUploadSuccess }) => {
       );
 
       toast({
-        title: 'Upload successful!',
+        title: 'Upload successful',
         description: `${selectedFile.name} has been uploaded successfully`,
         status: 'success',
         duration: 3000,
@@ -196,7 +214,6 @@ const DocumentUpload = ({ onUploadSuccess }) => {
         fileInputRef.current.value = '';
       }
       
-      // Notify parent component
       if (onUploadSuccess) {
         onUploadSuccess(response.data);
       }
@@ -229,13 +246,20 @@ const DocumentUpload = ({ onUploadSuccess }) => {
   const handleGroupSelect = (group) => {
     setSelectedGroup(group);
     setShowGroupModal(false);
+    toast({
+      title: 'Group selected',
+      description: `Document will be shared with ${group.name}`,
+      status: 'success',
+      duration: 2000,
+      isClosable: true,
+    });
   };
 
   const openGroupModal = () => {
     if (userGroups.length === 0) {
       toast({
         title: 'No groups available',
-        description: 'Please create a user group first from the menu',
+        description: 'Please create a user group first from the Groups menu',
         status: 'warning',
         duration: 5000,
         isClosable: true,
@@ -245,33 +269,14 @@ const DocumentUpload = ({ onUploadSuccess }) => {
     setShowGroupModal(true);
   };
 
-  const getVisibilityIcon = (vis) => {
-    switch (vis) {
-      case 'private':
-        return FiEyeOff;
-      case 'public':
-        return FiGlobe;
-      case 'group':
-        return FiUsers;
-      default:
-        return FiEye;
+  const handleVisibilityChange = (newVisibility) => {
+    setVisibility(newVisibility);
+    if (newVisibility !== 'group') {
+      setSelectedGroup(null);
     }
   };
 
-  const getVisibilityDescription = (vis) => {
-    switch (vis) {
-      case 'private':
-        return 'Only you can see this document';
-      case 'public':
-        return 'All users can see this document';
-      case 'group':
-        return selectedGroup 
-          ? `Only members of ${selectedGroup.name} can see this document`
-          : 'Only group members can see this document';
-      default:
-        return '';
-    }
-  };
+  const isUploadDisabled = !selectedFile || uploading || (visibility === 'group' && !selectedGroup);
 
   return (
     <>
@@ -281,7 +286,6 @@ const DocumentUpload = ({ onUploadSuccess }) => {
             Upload Document
           </Text>
 
-          {/* Error Alert */}
           {uploadError && (
             <Alert status="error" variant="left-accent" rounded="md">
               <AlertIcon />
@@ -297,52 +301,78 @@ const DocumentUpload = ({ onUploadSuccess }) => {
             <Text color="gray.300" fontWeight="semibold" mb={3}>
               Document Visibility
             </Text>
-            <RadioGroup value={visibility} onChange={setVisibility}>
+            <RadioGroup value={visibility} onChange={handleVisibilityChange}>
               <Stack direction="column" spacing={3}>
-                {apiUtils.getVisibilityOptions(userGroups).map(option => (
-                  <Radio 
-                    key={option.value} 
-                    value={option.value} 
-                    colorScheme="accent" 
-                    color="white"
-                    isDisabled={uploading}
-                  >
-                    <VStack align="start" spacing={1} ml={2}>
-                      <HStack>
-                        <Icon as={getVisibilityIcon(option.value)} color={`${option.color}.400`} />
-                        <Text color="white" fontWeight="medium">
-                          {option.label}
-                        </Text>
-                        {option.value === 'group' && selectedGroup && (
-                          <Badge colorScheme="accent" fontSize="xs">
-                            {selectedGroup.name}
-                          </Badge>
-                        )}
-                      </HStack>
-                      <Text color="gray.400" fontSize="sm">
-                        {option.value === 'group' ? getVisibilityDescription('group') : option.description}
-                      </Text>
-                    </VStack>
-                  </Radio>
-                ))}
+                <Radio value="private" colorScheme="accent" color="white" isDisabled={uploading}>
+                  <VStack align="start" spacing={1} ml={2}>
+                    <HStack>
+                      <Icon as={FiEyeOff} color="gray.400" />
+                      <Text color="white" fontWeight="medium">Private</Text>
+                    </HStack>
+                    <Text color="gray.400" fontSize="sm">
+                      Only you can see this document
+                    </Text>
+                  </VStack>
+                </Radio>
+
+                <Radio value="public" colorScheme="accent" color="white" isDisabled={uploading}>
+                  <VStack align="start" spacing={1} ml={2}>
+                    <HStack>
+                      <Icon as={FiGlobe} color="green.400" />
+                      <Text color="white" fontWeight="medium">Public</Text>
+                    </HStack>
+                    <Text color="gray.400" fontSize="sm">
+                      All users can see this document
+                    </Text>
+                  </VStack>
+                </Radio>
+
+                <Radio value="group" colorScheme="accent" color="white" isDisabled={uploading}>
+                  <VStack align="start" spacing={1} ml={2}>
+                    <HStack>
+                      <Icon as={FiUsers} color="accent.400" />
+                      <Text color="white" fontWeight="medium">Group</Text>
+                      {selectedGroup && (
+                        <Badge colorScheme="accent" fontSize="xs">
+                          {selectedGroup.name}
+                        </Badge>
+                      )}
+                    </HStack>
+                    <Text color="gray.400" fontSize="sm">
+                      {selectedGroup 
+                        ? `Only members of ${selectedGroup.name} can see this document`
+                        : 'Only group members can see this document'}
+                    </Text>
+                  </VStack>
+                </Radio>
               </Stack>
             </RadioGroup>
 
             {/* Group Selection Button */}
             {visibility === 'group' && (
               <Box mt={3}>
-                <Button
-                  leftIcon={<FiUsers />}
-                  onClick={openGroupModal}
-                  variant="outline"
-                  colorScheme="accent"
-                  w="full"
-                  isDisabled={uploading || loadingGroups}
-                  isLoading={loadingGroups}
-                  loadingText="Loading groups..."
-                >
-                  {selectedGroup ? `Selected: ${selectedGroup.name}` : 'Select Group'}
-                </Button>
+                {loadingGroups ? (
+                  <Button
+                    leftIcon={<Spinner size="sm" />}
+                    w="full"
+                    variant="outline"
+                    colorScheme="accent"
+                    isDisabled
+                  >
+                    Loading groups...
+                  </Button>
+                ) : (
+                  <Button
+                    leftIcon={<FiUsers />}
+                    onClick={openGroupModal}
+                    variant="outline"
+                    colorScheme="accent"
+                    w="full"
+                    isDisabled={uploading || userGroups.length === 0}
+                  >
+                    {selectedGroup ? `Selected: ${selectedGroup.name}` : 'Select Group'}
+                  </Button>
+                )}
                 {userGroups.length === 0 && !loadingGroups && (
                   <Text color="yellow.400" fontSize="sm" mt={2} textAlign="center">
                     You need to create a group first to use this option
@@ -356,7 +386,7 @@ const DocumentUpload = ({ onUploadSuccess }) => {
           <Box
             border="2px dashed"
             borderColor={isDragging ? 'accent.500' : uploadError ? 'red.500' : 'primary.500'}
-            bg={isDragging ? 'primary.700' : uploadError ? 'red.50' : 'primary.900'}
+            bg={isDragging ? 'primary.700' : uploadError ? 'red.900' : 'primary.900'}
             rounded="lg"
             p={12}
             textAlign="center"
@@ -418,6 +448,7 @@ const DocumentUpload = ({ onUploadSuccess }) => {
                   display="flex"
                   alignItems="center"
                   justifyContent="center"
+                  zIndex={1}
                 >
                   <Spinner size="xl" color="accent.500" />
                 </Box>
@@ -434,8 +465,17 @@ const DocumentUpload = ({ onUploadSuccess }) => {
                       {apiUtils.formatFileSize(selectedFile.size)}
                     </Text>
                     <HStack>
-                      <Badge colorScheme={getVisibilityColor(visibility)} fontSize="xs">
-                        {getVisibilityLabel(visibility)}
+                      <Badge 
+                        colorScheme={
+                          visibility === 'private' ? 'gray' : 
+                          visibility === 'public' ? 'green' : 
+                          'accent'
+                        } 
+                        fontSize="xs"
+                      >
+                        {visibility === 'private' ? 'Private' : 
+                         visibility === 'public' ? 'Public' : 
+                         'Group'}
                       </Badge>
                       {selectedGroup && (
                         <Badge colorScheme="accent" fontSize="xs">
@@ -483,7 +523,7 @@ const DocumentUpload = ({ onUploadSuccess }) => {
             colorScheme="accent"
             size="lg"
             onClick={handleUpload}
-            isDisabled={!selectedFile || uploading || (visibility === 'group' && !selectedGroup)}
+            isDisabled={isUploadDisabled}
             isLoading={uploading}
             loadingText={`Uploading... ${uploadProgress}%`}
             leftIcon={<FiUpload />}
@@ -498,12 +538,13 @@ const DocumentUpload = ({ onUploadSuccess }) => {
             {uploading ? `Uploading... ${uploadProgress}%` : 'Upload Document'}
           </Button>
 
-          {/* Upload Tips */}
-          <Box mt={2}>
-            <Text color="gray.500" fontSize="sm" textAlign="center">
-              <strong>Tip:</strong> Documents are automatically indexed for search and AI-powered retrieval
-            </Text>
-          </Box>
+          {/* Help Text */}
+          {visibility === 'group' && !selectedGroup && !loadingGroups && userGroups.length > 0 && (
+            <Alert status="info" variant="left-accent" rounded="md">
+              <AlertIcon />
+              <Text fontSize="sm">Please select a group to continue with the upload</Text>
+            </Alert>
+          )}
         </VStack>
       </Box>
 
@@ -522,7 +563,7 @@ const DocumentUpload = ({ onUploadSuccess }) => {
               </Box>
             ) : userGroups.length === 0 ? (
               <Box textAlign="center" py={8}>
-                <FiUsers size={48} color="#4A5568" />
+                <Icon as={FiUsers} boxSize={12} color="gray.600" />
                 <Text color="gray.400" mt={4}>
                   You are not in any groups yet.
                 </Text>
@@ -558,9 +599,9 @@ const DocumentUpload = ({ onUploadSuccess }) => {
                         )}
                         <HStack spacing={4}>
                           <HStack>
-                            <FiUsers color="#A0AEC0" size={14} />
+                            <Icon as={FiUsers} color="gray.400" boxSize={3} />
                             <Text color="gray.400" fontSize="xs">
-                              {group.members ? group.members.length + 1 : 1} members
+                              {group.members ? group.members.length : 0} members
                             </Text>
                           </HStack>
                           {group.created_by_id === JSON.parse(localStorage.getItem('user') || '{}').id && (
@@ -580,33 +621,6 @@ const DocumentUpload = ({ onUploadSuccess }) => {
       </Modal>
     </>
   );
-};
-
-// Helper functions
-const getVisibilityLabel = (visibility) => {
-  switch (visibility) {
-    case 'private':
-      return 'Private';
-    case 'public':
-      return 'Public';
-    case 'group':
-      return 'Group';
-    default:
-      return 'Private';
-  }
-};
-
-const getVisibilityColor = (visibility) => {
-  switch (visibility) {
-    case 'private':
-      return 'gray';
-    case 'public':
-      return 'green';
-    case 'group':
-      return 'accent';
-    default:
-      return 'gray';
-  }
 };
 
 export default DocumentUpload;
