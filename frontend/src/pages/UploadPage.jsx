@@ -3,21 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Container,
-  Heading,
-  Text,
-  HStack,
-  Badge,
-  Icon,
   useToast,
-  Tabs,
-  TabList,
-  Tab,
   Flex,
 } from '@chakra-ui/react';
-import { FiLock } from 'react-icons/fi';
 import SearchBar from '../custom_components/SearchBar';
 import DocumentUpload from '../custom_components/DocumentUpload';
 import FloatingMenu from '../custom_components/FloatingMenu';
+import AppHeader from '../custom_components/AppHeader';
+import NavTabs from '../custom_components/NavTabs';
+import PageTransition from '../custom_components/PageTransition';
 import { searchAPI } from '../utils/api';
 
 const UploadPage = () => {
@@ -85,84 +79,25 @@ const UploadPage = () => {
 
   return (
     <Box minH="100vh" bg="background.primary">
-      <Box
-        bg="primary.800"
-        borderBottom="1px"
-        borderColor="primary.600"
-        px={6}
-        py={4}
-        position="sticky"
-        top={0}
-        zIndex={100}
-      >
-        <HStack justify="space-between">
-          <HStack spacing={4}>
-            <Icon as={FiLock} boxSize={6} color="accent.500" />
-            <Heading size="md" color="white" fontWeight="bold">
-              LOCKET.AI
-            </Heading>
-          </HStack>
-
-          <HStack spacing={4}>
-            <Text color="gray.400" fontSize="sm">
-              {user.username}
-            </Text>
-            <Badge
-              colorScheme={user.role === 'admin' ? 'purple' : 'accent'}
-              fontSize="xs"
-              px={3}
-              py={1}
-            >
-              {user.role}
-            </Badge>
-          </HStack>
-        </HStack>
-      </Box>
+      <AppHeader user={user} />
 
       <Flex h="calc(100vh - 73px)">
         <Box flex={1} display="flex" flexDirection="column" overflow="hidden">
+          <NavTabs />
+
+          {/* Search Bar */}
           <Box bg="primary.800" borderBottom="1px" borderColor="primary.600">
             <Box px={6} pt={4} pb={2}>
               <SearchBar onSearch={handleSearch} isLoading={false} />
             </Box>
-            
-            <Tabs colorScheme="accent" variant="line" px={6} defaultIndex={3}>
-              <TabList borderBottom="none">
-                <Tab
-                  color="gray.400"
-                  _selected={{ color: 'accent.500', borderColor: 'accent.500' }}
-                  onClick={() => navigate('/')}
-                >
-                  Home
-                </Tab>
-                <Tab
-                  color="gray.400"
-                  _selected={{ color: 'accent.500', borderColor: 'accent.500' }}
-                  onClick={() => navigate('/documents')}
-                >
-                  Documents
-                </Tab>
-                <Tab
-                  color="gray.400"
-                  _selected={{ color: 'accent.500', borderColor: 'accent.500' }}
-                  onClick={() => navigate('/my-uploads')}
-                >
-                  My Uploads
-                </Tab>
-                <Tab
-                  color="gray.400"
-                  _selected={{ color: 'accent.500', borderColor: 'accent.500' }}
-                >
-                  Upload
-                </Tab>
-              </TabList>
-            </Tabs>
           </Box>
 
           <Box flex={1} overflowY="auto" p={6}>
-            <Container maxW="container.md">
-              <DocumentUpload onUploadSuccess={handleUploadSuccess} />
-            </Container>
+            <PageTransition>
+              <Container maxW="container.md">
+                <DocumentUpload onUploadSuccess={handleUploadSuccess} />
+              </Container>
+            </PageTransition>
           </Box>
         </Box>
       </Flex>

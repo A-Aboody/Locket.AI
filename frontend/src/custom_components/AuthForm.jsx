@@ -10,21 +10,19 @@ import {
   useToast,
   Heading,
   Link,
+  IconButton,
 } from '@chakra-ui/react';
+import { FiX } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import { authAPI } from '../utils/api';
 
-const AuthForm = () => {
+const AuthForm = ({ onAuthSuccess, onClose }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
   const toast = useToast();
 
-  const [loginData, setLoginData] = useState({
-    email: '',
-    password: '',
-  });
-
+  const [loginData, setLoginData] = useState({ email: '', password: '' });
   const [registerData, setRegisterData] = useState({
     username: '',
     email: '',
@@ -35,10 +33,8 @@ const AuthForm = () => {
   const handleLogin = async (e) => {
     e.preventDefault();
     setIsLoading(true);
-
     try {
       const response = await authAPI.login(loginData);
-
       localStorage.setItem('token', response.data.access_token);
       localStorage.setItem('user', JSON.stringify(response.data.user));
 
@@ -50,7 +46,8 @@ const AuthForm = () => {
         isClosable: true,
       });
 
-      navigate('/');
+      if (onAuthSuccess) onAuthSuccess();
+      else navigate('/dashboard');
     } catch (error) {
       toast({
         title: 'Login failed',
@@ -67,7 +64,6 @@ const AuthForm = () => {
   const handleRegister = async (e) => {
     e.preventDefault();
     setIsLoading(true);
-
     try {
       const response = await authAPI.register({
         username: registerData.username,
@@ -87,7 +83,8 @@ const AuthForm = () => {
         isClosable: true,
       });
 
-      navigate('/');
+      if (onAuthSuccess) onAuthSuccess();
+      else navigate('/dashboard');
     } catch (error) {
       toast({
         title: 'Registration failed',
@@ -103,25 +100,42 @@ const AuthForm = () => {
 
   return (
     <Box
-      bg="primary.700"
-      boxShadow="2xl"
-      rounded="xl"
-      p={10}
-      maxW="450px"
-      mx="auto"
-      border="1px"
+      position="relative"
+      bg="primary.800"
+      border="1px solid"
       borderColor="primary.600"
+      rounded="xl"
+      p={{ base: 6, md: 8 }}
+      w="100%"
+      maxW="400px"
+      mx="auto"
+      boxShadow="2xl"
     >
+      {/* Optional close button when onClose is provided */}
+      {onClose && (
+        <IconButton
+          icon={<FiX />}
+          aria-label="Close"
+          onClick={onClose}
+          position="absolute"
+          top="10px"
+          right="10px"
+          size="sm"
+          variant="ghost"
+          color="gray.300"
+          _hover={{ color: 'white', bg: 'primary.700' }}
+        />
+      )}
+
       {isLogin ? (
         <>
-          <Heading size="lg" mb={8} color="white">
+          <Heading size="lg" mb={6} color="white" textAlign="center">
             Log In
           </Heading>
-
           <form onSubmit={handleLogin}>
-            <VStack spacing={6}>
+            <VStack spacing={5}>
               <FormControl isRequired>
-                <FormLabel color="gray.300" fontWeight="medium" mb={2}>
+                <FormLabel color="gray.300" mb={1}>
                   Email
                 </FormLabel>
                 <Input
@@ -131,8 +145,7 @@ const AuthForm = () => {
                   onChange={(e) =>
                     setLoginData({ ...loginData, email: e.target.value })
                   }
-                  size="lg"
-                  bg="primary.800"
+                  bg="primary.900"
                   borderColor="primary.500"
                   color="white"
                   _placeholder={{ color: 'gray.500' }}
@@ -140,7 +153,7 @@ const AuthForm = () => {
               </FormControl>
 
               <FormControl isRequired>
-                <FormLabel color="gray.300" fontWeight="medium" mb={2}>
+                <FormLabel color="gray.300" mb={1}>
                   Password
                 </FormLabel>
                 <Input
@@ -150,8 +163,7 @@ const AuthForm = () => {
                   onChange={(e) =>
                     setLoginData({ ...loginData, password: e.target.value })
                   }
-                  size="lg"
-                  bg="primary.800"
+                  bg="primary.900"
                   borderColor="primary.500"
                   color="white"
                   _placeholder={{ color: 'gray.500' }}
@@ -162,17 +174,14 @@ const AuthForm = () => {
                 type="submit"
                 colorScheme="accent"
                 width="full"
-                size="lg"
                 isLoading={isLoading}
                 mt={2}
-                bg="accent.500"
-                _hover={{ bg: 'accent.600' }}
               >
                 Log In
               </Button>
 
-              <Text color="gray.400" fontSize="sm" mt={4}>
-                Don't have an account?{' '}
+              <Text color="gray.400" fontSize="sm" textAlign="center">
+                Don’t have an account?{' '}
                 <Link
                   color="accent.400"
                   fontWeight="semibold"
@@ -188,14 +197,13 @@ const AuthForm = () => {
         </>
       ) : (
         <>
-          <Heading size="lg" mb={8} color="white">
+          <Heading size="lg" mb={6} color="white" textAlign="center">
             Create Account
           </Heading>
-
           <form onSubmit={handleRegister}>
             <VStack spacing={5}>
               <FormControl isRequired>
-                <FormLabel color="gray.300" fontWeight="medium" mb={2}>
+                <FormLabel color="gray.300" mb={1}>
                   Username
                 </FormLabel>
                 <Input
@@ -203,10 +211,12 @@ const AuthForm = () => {
                   placeholder="Choose a username"
                   value={registerData.username}
                   onChange={(e) =>
-                    setRegisterData({ ...registerData, username: e.target.value })
+                    setRegisterData({
+                      ...registerData,
+                      username: e.target.value,
+                    })
                   }
-                  size="lg"
-                  bg="primary.800"
+                  bg="primary.900"
                   borderColor="primary.500"
                   color="white"
                   _placeholder={{ color: 'gray.500' }}
@@ -214,7 +224,7 @@ const AuthForm = () => {
               </FormControl>
 
               <FormControl isRequired>
-                <FormLabel color="gray.300" fontWeight="medium" mb={2}>
+                <FormLabel color="gray.300" mb={1}>
                   Email
                 </FormLabel>
                 <Input
@@ -224,8 +234,7 @@ const AuthForm = () => {
                   onChange={(e) =>
                     setRegisterData({ ...registerData, email: e.target.value })
                   }
-                  size="lg"
-                  bg="primary.800"
+                  bg="primary.900"
                   borderColor="primary.500"
                   color="white"
                   _placeholder={{ color: 'gray.500' }}
@@ -233,18 +242,20 @@ const AuthForm = () => {
               </FormControl>
 
               <FormControl>
-                <FormLabel color="gray.300" fontWeight="medium" mb={2}>
-                  Full Name (Optional)
+                <FormLabel color="gray.300" mb={1}>
+                  Full Name (optional)
                 </FormLabel>
                 <Input
                   type="text"
                   placeholder="Your full name"
                   value={registerData.full_name}
                   onChange={(e) =>
-                    setRegisterData({ ...registerData, full_name: e.target.value })
+                    setRegisterData({
+                      ...registerData,
+                      full_name: e.target.value,
+                    })
                   }
-                  size="lg"
-                  bg="primary.800"
+                  bg="primary.900"
                   borderColor="primary.500"
                   color="white"
                   _placeholder={{ color: 'gray.500' }}
@@ -252,7 +263,7 @@ const AuthForm = () => {
               </FormControl>
 
               <FormControl isRequired>
-                <FormLabel color="gray.300" fontWeight="medium" mb={2}>
+                <FormLabel color="gray.300" mb={1}>
                   Password
                 </FormLabel>
                 <Input
@@ -260,33 +271,29 @@ const AuthForm = () => {
                   placeholder="Minimum 6 characters"
                   value={registerData.password}
                   onChange={(e) =>
-                    setRegisterData({ ...registerData, password: e.target.value })
+                    setRegisterData({
+                      ...registerData,
+                      password: e.target.value,
+                    })
                   }
-                  size="lg"
-                  bg="primary.800"
+                  bg="primary.900"
                   borderColor="primary.500"
                   color="white"
                   _placeholder={{ color: 'gray.500' }}
                 />
-                <Text fontSize="xs" color="gray.500" mt={2}>
-                  Password must be at least 6 characters
-                </Text>
               </FormControl>
 
               <Button
                 type="submit"
                 colorScheme="accent"
                 width="full"
-                size="lg"
                 isLoading={isLoading}
                 mt={2}
-                bg="accent.500"
-                _hover={{ bg: 'accent.600' }}
               >
                 Sign Up
               </Button>
 
-              <Text color="gray.400" fontSize="sm" mt={4}>
+              <Text color="gray.400" fontSize="sm" textAlign="center">
                 Already have an account?{' '}
                 <Link
                   color="accent.400"
