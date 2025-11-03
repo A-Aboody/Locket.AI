@@ -7,14 +7,17 @@ import {
   useOutsideClick,
   Portal,
   ScaleFade,
+  useDisclosure,
 } from '@chakra-ui/react';
-import { FiMenu, FiUser, FiSettings, FiLogOut, FiUsers } from 'react-icons/fi';
+import { FiMenu, FiUser, FiSettings, FiLogOut, FiUsers, FiKey } from 'react-icons/fi';
 import { useRef } from 'react';
 import UserGroupsModal from './UserGroupsModal';
+import ChangePasswordModal from './ChangePasswordModal';
 
 const FloatingMenu = ({ onProfile, onSettings, onLogout }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [showUserGroups, setShowUserGroups] = useState(false);
+  const { isOpen: isChangePasswordOpen, onOpen: onChangePasswordOpen, onClose: onChangePasswordClose } = useDisclosure();
   const ref = useRef();
 
   useOutsideClick({
@@ -44,6 +47,11 @@ const FloatingMenu = ({ onProfile, onSettings, onLogout }) => {
   const handleUserGroups = () => {
     setIsOpen(false);
     setShowUserGroups(true);
+  };
+
+  const handleChangePassword = () => {
+    setIsOpen(false);
+    onChangePasswordOpen();
   };
 
   return (
@@ -79,6 +87,22 @@ const FloatingMenu = ({ onProfile, onSettings, onLogout }) => {
               >
                 Profile
               </Button>
+              
+              <Button
+                leftIcon={<FiKey />}
+                onClick={handleChangePassword}
+                w="full"
+                justifyContent="flex-start"
+                variant="ghost"
+                color="gray.200"
+                _hover={{
+                  bg: 'accent.500',
+                  color: 'white',
+                }}
+              >
+                Change Password
+              </Button>
+              
               <Button
                 leftIcon={<FiUsers />}
                 onClick={handleUserGroups}
@@ -93,6 +117,7 @@ const FloatingMenu = ({ onProfile, onSettings, onLogout }) => {
               >
                 Manage Groups
               </Button>
+              
               <Button
                 leftIcon={<FiSettings />}
                 onClick={handleSettings}
@@ -107,6 +132,7 @@ const FloatingMenu = ({ onProfile, onSettings, onLogout }) => {
               >
                 Settings
               </Button>
+              
               <Button
                 leftIcon={<FiLogOut />}
                 onClick={handleLogout}
@@ -151,6 +177,12 @@ const FloatingMenu = ({ onProfile, onSettings, onLogout }) => {
       <UserGroupsModal 
         isOpen={showUserGroups} 
         onClose={() => setShowUserGroups(false)} 
+      />
+
+      {/* Change Password Modal */}
+      <ChangePasswordModal
+        isOpen={isChangePasswordOpen}
+        onClose={onChangePasswordClose}
       />
     </>
   );

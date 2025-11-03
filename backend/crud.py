@@ -1,3 +1,4 @@
+# backend/crud.py
 """
 CRUD operations for database
 """
@@ -5,9 +6,10 @@ CRUD operations for database
 import bcrypt
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_, and_
-from database_models import User, UserRole, Document, UserGroup, UserGroupMember
+from database_models import User, UserRole, UserStatus, Document, UserGroup, UserGroupMember, VerificationCode, PasswordResetToken
 from schemas import UserRegister
 from typing import Optional, List, Dict
+from datetime import datetime, timezone
 
 
 def hash_password(password: str) -> str:
@@ -35,6 +37,22 @@ def get_user_by_id(db: Session, user_id: int) -> Optional[User]:
     return db.query(User).filter(User.id == user_id).first()
 
 
+def get_user_by_email_or_username(db: Session, identifier: str) -> Optional[User]:
+    """
+    Get user by email or username
+    
+    Args:
+        db: Database session
+        identifier: Email or username
+    
+    Returns:
+        User object if found
+    """
+    return db.query(User).filter(
+        (User.email == identifier) | (User.username == identifier)
+    ).first()
+
+
 def create_user(db: Session, user_data: UserRegister) -> User:
     """
     Create a new user
@@ -54,7 +72,10 @@ def create_user(db: Session, user_data: UserRegister) -> User:
         full_name=user_data.full_name,
         hashed_password=hashed_pw,
         role=UserRole.USER,  # Default role is standard user
-        is_active=True
+        status=UserStatus.PENDING,  # New users start as pending until email verification
+        is_active=True,
+        email_verified=False,  # Email not verified initially
+        last_password_change=datetime.now(timezone.utc)
     )
     
     db.add(new_user)
@@ -88,6 +109,312 @@ def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
         return None
     
     return user
+
+
+def update_user_password(db: Session, user_id: int, new_password: str) -> bool:
+    """
+    Update user password and track last change time
+    
+    Args:
+        db: Database session
+        user_id: User ID
+        new_password: New plain text password
+    
+    Returns:
+        True if successful
+    """
+    user = get_user_by_id(db, user_id)
+    if not user:
+        return False
+    
+    hashed_pw = hash_password(new_password)
+    user.hashed_password = hashed_pw
+    user.last_password_change = datetime.now(timezone.utc)
+    user.updated_at = datetime.now(timezone.utc)
+    
+    db.commit()
+    return True
+
+
+def verify_user_email(db: Session, user_id: int) -> bool:
+    """
+    Mark user's email as verified and activate account
+    
+    Args:
+        db: Database session
+        user_id: User ID
+    
+    Returns:
+        True if successful
+    """
+    user = get_user_by_id(db, user_id)
+    if not user:
+        return False
+    
+    user.email_verified = True
+    user.status = UserStatus.ACTIVE
+    user.updated_at = datetime.now(timezone.utc)
+    
+    db.commit()
+    return True
+
+
+def deactivate_user(db: Session, user_id: int) -> bool:
+    """
+    Deactivate user account
+    
+    Args:
+        db: Database session
+        user_id: User ID
+    
+    Returns:
+        True if successful
+    """
+    user = get_user_by_id(db, user_id)
+    if not user:
+        return False
+    
+    user.is_active = False
+    user.status = UserStatus.SUSPENDED
+    user.updated_at = datetime.now(timezone.utc)
+    
+    db.commit()
+    return True
+
+
+def activate_user(db: Session, user_id: int) -> bool:
+    """
+    Activate user account
+    
+    Args:
+        db: Database session
+        user_id: User ID
+    
+    Returns:
+        True if successful
+    """
+    user = get_user_by_id(db, user_id)
+    if not user:
+        return False
+    
+    user.is_active = True
+    user.status = UserStatus.ACTIVE
+    user.updated_at = datetime.now(timezone.utc)
+    
+    db.commit()
+    return True
+
+
+def get_verification_code(db: Session, user_id: int, code: str) -> Optional[VerificationCode]:
+    """
+    Get a verification code for a user
+    
+    Args:
+        db: Database session
+        user_id: User ID
+        code: Verification code
+    
+    Returns:
+        VerificationCode object if found
+    """
+    return db.query(VerificationCode).filter(
+        VerificationCode.user_id == user_id,
+        VerificationCode.code == code,
+        VerificationCode.is_used == False,
+        VerificationCode.expires_at > datetime.now(timezone.utc)
+    ).first()
+
+
+def mark_verification_code_used(db: Session, verification_id: int) -> bool:
+    """
+    Mark a verification code as used
+    
+    Args:
+        db: Database session
+        verification_id: Verification code ID
+    
+    Returns:
+        True if successful
+    """
+    verification = db.query(VerificationCode).filter(
+        VerificationCode.id == verification_id
+    ).first()
+    
+    if verification:
+        verification.is_used = True
+        verification.used_at = datetime.now(timezone.utc)
+        db.commit()
+        return True
+    
+    return False
+
+
+def get_password_reset_token(db: Session, token: str) -> Optional[PasswordResetToken]:
+    """
+    Get a password reset token
+    
+    Args:
+        db: Database session
+        token: Reset token
+    
+    Returns:
+        PasswordResetToken object if found
+    """
+    return db.query(PasswordResetToken).filter(
+        PasswordResetToken.token == token,
+        PasswordResetToken.is_used == False,
+        PasswordResetToken.expires_at > datetime.now(timezone.utc)
+    ).first()
+
+
+def mark_reset_token_used(db: Session, token_id: int) -> bool:
+    """
+    Mark a reset token as used
+    
+    Args:
+        db: Database session
+        token_id: Reset token ID
+    
+    Returns:
+        True if successful
+    """
+    reset_token = db.query(PasswordResetToken).filter(
+        PasswordResetToken.id == token_id
+    ).first()
+    
+    if reset_token:
+        reset_token.is_used = True
+        reset_token.used_at = datetime.now(timezone.utc)
+        db.commit()
+        return True
+    
+    return False
+
+
+def create_verification_code_record(db: Session, user_id: int, email: str, code: str, expires_at: datetime) -> VerificationCode:
+    """
+    Create a new verification code record
+    
+    Args:
+        db: Database session
+        user_id: User ID
+        email: User email
+        code: Verification code
+        expires_at: Expiration datetime
+    
+    Returns:
+        Created VerificationCode object
+    """
+    verification_code = VerificationCode(
+        user_id=user_id,
+        email=email,
+        code=code,
+        expires_at=expires_at,
+        is_used=False
+    )
+    
+    db.add(verification_code)
+    db.commit()
+    db.refresh(verification_code)
+    
+    return verification_code
+
+
+def create_password_reset_token_record(db: Session, user_id: int, token: str, expires_at: datetime) -> PasswordResetToken:
+    """
+    Create a new password reset token record
+    
+    Args:
+        db: Database session
+        user_id: User ID
+        token: Reset token
+        expires_at: Expiration datetime
+    
+    Returns:
+        Created PasswordResetToken object
+    """
+    reset_token = PasswordResetToken(
+        user_id=user_id,
+        token=token,
+        expires_at=expires_at,
+        is_used=False
+    )
+    
+    db.add(reset_token)
+    db.commit()
+    db.refresh(reset_token)
+    
+    return reset_token
+
+
+def invalidate_user_verification_codes(db: Session, user_id: int) -> int:
+    """
+    Invalidate all unused verification codes for a user
+    
+    Args:
+        db: Database session
+        user_id: User ID
+    
+    Returns:
+        Number of codes invalidated
+    """
+    result = db.query(VerificationCode).filter(
+        VerificationCode.user_id == user_id,
+        VerificationCode.is_used == False
+    ).update({"is_used": True})
+    
+    db.commit()
+    return result
+
+
+def invalidate_user_reset_tokens(db: Session, user_id: int) -> int:
+    """
+    Invalidate all unused reset tokens for a user
+    
+    Args:
+        db: Database session
+        user_id: User ID
+    
+    Returns:
+        Number of tokens invalidated
+    """
+    result = db.query(PasswordResetToken).filter(
+        PasswordResetToken.user_id == user_id,
+        PasswordResetToken.is_used == False
+    ).update({"is_used": True})
+    
+    db.commit()
+    return result
+
+
+def cleanup_expired_tokens(db: Session) -> Dict[str, int]:
+    """
+    Clean up expired verification codes and reset tokens
+    
+    Args:
+        db: Database session
+    
+    Returns:
+        Dictionary with cleanup statistics
+    """
+    now = datetime.now(timezone.utc)
+    
+    # Clean expired verification codes
+    expired_codes = db.query(VerificationCode).filter(
+        VerificationCode.expires_at <= now
+    ).delete()
+    
+    # Clean expired reset tokens
+    expired_tokens = db.query(PasswordResetToken).filter(
+        PasswordResetToken.expires_at <= now
+    ).delete()
+    
+    db.commit()
+    
+    return {
+        "expired_codes_cleaned": expired_codes,
+        "expired_tokens_cleaned": expired_tokens
+    }
 
 
 # Document CRUD Operations
@@ -175,21 +502,28 @@ def get_user_documents(db: Session, user_id: int, skip: int = 0, limit: int = 10
 def get_visible_documents(db: Session, user_id: int, skip: int = 0, limit: int = 100) -> List[Document]:
     """
     Get documents visible to a specific user
-    
+    Admins can see all documents
+
     Args:
         db: Database session
         user_id: User ID
         skip: Number of records to skip
         limit: Maximum number of records to return
-    
+
     Returns:
         List of visible documents
     """
+    # Check if user is admin
+    user = get_user_by_id(db, user_id)
+    if user and user.role == UserRole.ADMIN:
+        # Admins see everything
+        return get_all_documents(db, skip=skip, limit=limit)
+
     # Get all groups the user is member of
     user_group_ids = db.query(UserGroupMember.group_id).filter(
         UserGroupMember.user_id == user_id
     ).scalar_subquery()
-    
+
     return db.query(Document).options(
         joinedload(Document.uploaded_by),
         joinedload(Document.user_group)
@@ -329,11 +663,12 @@ def update_document_embedding(db: Session, document_id: int, embedding: List[flo
 def get_all_documents_for_search(db: Session, user_id: int) -> List[Dict]:
     """
     Get all documents with necessary fields for search (respects visibility)
-    
+    Admins can search all documents regardless of visibility
+
     Args:
         db: Database session
         user_id: User ID to check visibility for
-    
+
     Returns:
         List of document dictionaries
     """
@@ -372,6 +707,12 @@ def create_user_group(db: Session, group_data, creator_id: int) -> UserGroup:
     Returns:
         Created user group
     """
+    # Validate that all member IDs exist
+    for user_id in group_data.member_ids:
+        user = get_user_by_id(db, user_id)
+        if not user:
+            raise ValueError(f"User with ID {user_id} not found")
+    
     # Create the group
     group = UserGroup(
         name=group_data.name,
@@ -480,22 +821,36 @@ def delete_user_group(db: Session, group_id: int) -> bool:
     return False
 
 
-def search_users(db: Session, query: str, exclude_user_id: Optional[int] = None) -> List[User]:
-    """Search users by username or email"""
+def search_users(db: Session, query: str, exclude_user_id: Optional[int] = None, include_inactive: bool = False) -> List[User]:
+    """
+    Search users by username or email
+
+    Args:
+        db: Database session
+        query: Search query string
+        exclude_user_id: Optional user ID to exclude from results
+        include_inactive: If True, include inactive users (for admin searches)
+
+    Returns:
+        List of matching users
+    """
     from sqlalchemy import or_, and_
-    
+
     search_filter = or_(
         User.username.ilike(f"%{query}%"),
         User.email.ilike(f"%{query}%")
     )
-    
+
     if exclude_user_id:
         search_filter = and_(search_filter, User.id != exclude_user_id)
-    
-    return db.query(User).filter(
-        search_filter,
-        User.is_active == True
-    ).limit(20).all()
+
+    query_builder = db.query(User).filter(search_filter)
+
+    # Only filter by active status if we're not including inactive users
+    if not include_inactive:
+        query_builder = query_builder.filter(User.is_active == True)
+
+    return query_builder.limit(20).all()
 
 
 def update_user_group(db: Session, group_id: int, update_data) -> Optional[UserGroup]:
@@ -664,4 +1019,43 @@ def get_group_statistics(db: Session, group_id: int) -> Dict:
         'document_count': document_count,
         'last_activity': last_activity.uploaded_at if last_activity else None,
         'created_at': group.created_at
+    }
+
+
+def get_user_statistics(db: Session, user_id: int) -> Dict:
+    """
+    Get statistics for a user
+    
+    Args:
+        db: Database session
+        user_id: User ID
+    
+    Returns:
+        Dictionary with user statistics
+    """
+    user = get_user_by_id(db, user_id)
+    if not user:
+        return {}
+    
+    # Document count
+    document_count = db.query(Document).filter(
+        Document.uploaded_by_id == user_id
+    ).count()
+    
+    # Group count
+    group_count = get_user_group_membership_count(db, user_id)
+    
+    # Recent activity
+    recent_activity = db.query(Document).filter(
+        Document.uploaded_by_id == user_id
+    ).order_by(
+        Document.uploaded_at.desc()
+    ).first()
+    
+    return {
+        'document_count': document_count,
+        'group_count': group_count,
+        'last_activity': recent_activity.uploaded_at if recent_activity else None,
+        'account_created': user.created_at,
+        'last_login': user.last_login
     }

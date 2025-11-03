@@ -1,3 +1,4 @@
+# backend/index_documents.py
 """
 Index all documents with AI embeddings
 """

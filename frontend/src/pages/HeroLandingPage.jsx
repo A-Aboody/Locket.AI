@@ -25,11 +25,18 @@ import {
 import { FiSearch, FiLock, FiUpload, FiUsers, FiZap, FiShield, FiArrowRight, FiCheck } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import AuthForm from '../custom_components/AuthForm';
+import VerificationModal from '../custom_components/VerificationModal';
 
 const HeroLandingPage = () => {
     const navigate = useNavigate();
     const isMobile = useBreakpointValue({ base: true, md: false });
     const { isOpen, onOpen, onClose } = useDisclosure();
+    const {
+        isOpen: isVerificationOpen,
+        onOpen: onVerificationOpen,
+        onClose: onVerificationClose
+    } = useDisclosure();
+    const [user, setUser] = React.useState(null);
 
     const features = [
         {
@@ -74,6 +81,22 @@ const HeroLandingPage = () => {
     const handleAuthSuccess = () => {
         onClose();
         navigate('/dashboard');
+    };
+
+    const handleVerificationRequired = (userData) => {
+        setUser(userData);
+        // Close auth modal and open verification modal
+        onClose();
+        onVerificationOpen();
+    };
+
+    const handleVerificationComplete = (verifiedUser) => {
+        setUser(verifiedUser);
+        onVerificationClose();
+        // Redirect to dashboard after successful verification
+        setTimeout(() => {
+            navigate('/dashboard');
+        }, 1000);
     };
 
     return (
@@ -546,9 +569,21 @@ const HeroLandingPage = () => {
                     alignItems="center"
                     justifyContent="center"
                 >
-                    <AuthForm onAuthSuccess={handleAuthSuccess} onClose={onClose} />
+                    <AuthForm
+                        onAuthSuccess={handleAuthSuccess}
+                        onClose={onClose}
+                        onVerificationRequired={handleVerificationRequired}
+                    />
                 </ModalContent>
             </Modal>
+
+            {/* Verification Modal */}
+            <VerificationModal
+                isOpen={isVerificationOpen}
+                onClose={onVerificationClose}
+                user={user}
+                onVerificationComplete={handleVerificationComplete}
+            />
         </Box>
     );
 };

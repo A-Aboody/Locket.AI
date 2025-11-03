@@ -15,10 +15,11 @@ services:
     networks:
       - doc-retrieval-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U doc_user"]
+      test: ["CMD-SHELL", "pg_isready -U doc_user -d document_retrieval"]
       interval: 10s
-      timeout: 5s
-      retries: 5
+      timeout: 10s
+      retries: 10
+      start_period: 30s
 
   # Backend API
   backend:
@@ -43,9 +44,9 @@ services:
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
       interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+      timeout: 20s
+      retries: 5
+      start_period: 90s
 
 volumes:
   postgres_data:

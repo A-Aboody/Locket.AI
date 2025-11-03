@@ -1,0 +1,29 @@
+═══════════════════════════════════════════════════════════
+
+  {{app_name}}
+  Lock it with Locket
+
+═══════════════════════════════════════════════════════════
+
+EMAIL VERIFICATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Hello,
+
+Thank you for signing up! Use the verification code below to
+complete your registration and unlock the full power of AI-driven
+document intelligence.
+
+VERIFICATION CODE
+─────────────────────────────────────────────────────────────
+    {{verification_code}}
+─────────────────────────────────────────────────────────────
+
+EXPIRES IN 15 MINUTES
+Keep this code secure and don't share it with anyone.
+
+If you didn't request this verification, please ignore this email.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+© 2025 {{app_name}}. All rights reserved.
+Privacy-focused document intelligence platform

@@ -1,13 +1,14 @@
+# backend/dependencies.py
 """
 FastAPI dependencies
-Authentication and authorization
+Enhanced authentication and authorization
 """
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from db_config import get_db
-from database_models import User, UserRole
+from database_models import User, UserRole, UserStatus
 import crud
 import auth
 
@@ -20,7 +21,7 @@ def get_current_user(
     db: Session = Depends(get_db)
 ) -> User:
     """
-    Get current authenticated user from JWT token
+    Get current authenticated user from JWT token with enhanced checks
     
     Args:
         credentials: HTTP Bearer token
@@ -68,7 +69,37 @@ def get_current_user(
             detail="User account is inactive"
         )
     
+    # Check if email is verified (for critical operations)
+    # This can be made optional for some endpoints
+    is_verified = payload.get("verified", False)
+    if not is_verified and not user.email_verified:
+        # Allow access but mark as unverified
+        # Individual endpoints can check verification status if needed
+        pass
+    
     return user
+
+
+def require_verified_email(current_user: User = Depends(get_current_user)) -> User:
+    """
+    Require verified email for endpoint access
+    
+    Args:
+        current_user: Current authenticated user
+    
+    Returns:
+        Current user if email is verified
+    
+    Raises:
+        HTTPException: If email is not verified
+    """
+    if not current_user.email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email verification required"
+        )
+    
+    return current_user
 
 
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
@@ -88,6 +119,28 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required"
+        )
+    
+    return current_user
+
+
+def require_admin_or_verified_email(current_user: User = Depends(get_current_user)) -> User:
+    """
+    Require either admin role or verified email
+    
+    Args:
+        current_user: Current authenticated user
+    
+    Returns:
+        Current user if admin or verified
+    
+    Raises:
+        HTTPException: If neither admin nor verified
+    """
+    if current_user.role != UserRole.ADMIN and not current_user.email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access or verified email required"
         )
     
     return current_user
