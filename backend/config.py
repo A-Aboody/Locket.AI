@@ -1,3 +1,4 @@
+#backend/config.py
 """
 Application configuration
 Loads environment-specific settings

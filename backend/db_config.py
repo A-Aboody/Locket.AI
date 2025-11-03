@@ -1,3 +1,4 @@
+# backend/db_config.py
 """
 Database configuration and session management
 """

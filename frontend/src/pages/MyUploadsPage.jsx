@@ -40,17 +40,13 @@ const MyUploadsPage = () => {
   const toast = useToast();
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
+    // Get user data from localStorage (ProtectedRoute already verified auth)
     const storedUser = localStorage.getItem('user');
-
-    if (!token || !storedUser) {
-      navigate('/auth');
-      return;
+    if (storedUser) {
+      const userData = JSON.parse(storedUser);
+      setUser(userData);
     }
-
-    const userData = JSON.parse(storedUser);
-    setUser(userData);
-  }, [navigate]);
+  }, []);
 
   useEffect(() => {
     if (user) {

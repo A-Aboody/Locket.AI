@@ -1,4 +1,6 @@
+// frontend/src/App.jsx
 import { Route, Routes } from 'react-router-dom';
+import ProtectedRoute from './components/ProtectedRoute';
 import HeroLandingPage from './pages/HeroLandingPage';
 import HomePage from './pages/HomePage';
 import AllDocumentsPage from './pages/AllDocumentsPage';
@@ -11,10 +13,38 @@ function App() {
   return (
     <Routes>
       <Route path="/" element={<HeroLandingPage />} />
-      <Route path="/dashboard" element={<HomePage />} />
-      <Route path="/documents" element={<AllDocumentsPage />} />
-      <Route path="/my-uploads" element={<MyUploadsPage />} />
-      <Route path="/upload" element={<UploadPage />} />
+      <Route
+        path="/dashboard"
+        element={
+          <ProtectedRoute>
+            <HomePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/documents"
+        element={
+          <ProtectedRoute>
+            <AllDocumentsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/my-uploads"
+        element={
+          <ProtectedRoute>
+            <MyUploadsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/upload"
+        element={
+          <ProtectedRoute>
+            <UploadPage />
+          </ProtectedRoute>
+        }
+      />
       <Route path="/auth" element={<AuthPage />} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>

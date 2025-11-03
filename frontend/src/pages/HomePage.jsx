@@ -35,29 +35,25 @@ const HomePage = () => {
   const [viewingDocumentId, setViewingDocumentId] = useState(null);
   const [previewDocumentId, setPreviewDocumentId] = useState(null);
   const [viewMode, setViewMode] = useState(localStorage.getItem('documentViewMode') || 'card');
-  
+
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState(null);
   const [isSearching, setIsSearching] = useState(false);
   const [searchTime, setSearchTime] = useState(0);
-  
+
   const navigate = useNavigate();
   const toast = useToast();
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
+    // Get user data from localStorage (ProtectedRoute already verified auth)
     const storedUser = localStorage.getItem('user');
-
-    if (!token || !storedUser) {
-      navigate('/auth');
-      return;
+    if (storedUser) {
+      const userData = JSON.parse(storedUser);
+      setUser(userData);
+      fetchRecentActivity();
+      fetchMyUploads(userData.username);
     }
-
-    const userData = JSON.parse(storedUser);
-    setUser(userData);
-    fetchRecentActivity();
-    fetchMyUploads(userData.username);
-  }, [navigate]);
+  }, []);
 
   const fetchRecentActivity = async () => {
     try {

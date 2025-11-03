@@ -1,8 +1,9 @@
+# backend/database_models.py
 """
 Database models for Document Retrieval System
 """
 
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, ForeignKey, Enum, JSON, UniqueConstraint
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, ForeignKey, Enum, JSON, UniqueConstraint, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
@@ -17,6 +18,14 @@ class UserRole(enum.Enum):
     ADMIN = "admin"
 
 
+class UserStatus(enum.Enum):
+    """User status enumeration"""
+    PENDING = "pending"  # Email not verified
+    ACTIVE = "active"    # Email verified
+    SUSPENDED = "suspended"
+    DELETED = "deleted"
+
+
 class User(Base):
     """User model for authentication and authorization"""
     __tablename__ = "users"
@@ -27,10 +36,13 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     full_name = Column(String(100), nullable=True)
     role = Column(Enum(UserRole), default=UserRole.USER, nullable=False)
+    status = Column(Enum(UserStatus), default=UserStatus.PENDING, nullable=False)  # New field
     is_active = Column(Boolean, default=True, nullable=False)
+    email_verified = Column(Boolean, default=False, nullable=False)  # New field
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     last_login = Column(DateTime, nullable=True)
+    last_password_change = Column(DateTime, nullable=True)  # New field
     
     # Relationships
     documents = relationship(
@@ -51,9 +63,69 @@ class User(Base):
         cascade="all, delete-orphan",
         lazy="dynamic"
     )
+    verification_codes = relationship(
+        "VerificationCode",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+    reset_tokens = relationship(
+        "PasswordResetToken",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
     
     def __repr__(self):
-        return f"<User(id={self.id}, username='{self.username}', role={self.role.value})>"
+        return f"<User(id={self.id}, username='{self.username}', status={self.status.value})>"
+
+
+class VerificationCode(Base):
+    """Email verification codes"""
+    __tablename__ = "verification_codes"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    email = Column(String(100), nullable=False)
+    code = Column(String(10), nullable=False)  # 6-digit code
+    expires_at = Column(DateTime, nullable=False)
+    is_used = Column(Boolean, default=False, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    
+    # Relationships
+    user = relationship("User", back_populates="verification_codes")
+    
+    # Indexes
+    __table_args__ = (
+        Index('ix_verification_codes_user_code', 'user_id', 'code'),
+        Index('ix_verification_codes_expires', 'expires_at'),
+    )
+    
+    def __repr__(self):
+        return f"<VerificationCode(user_id={self.user_id}, code='{self.code}')>"
+
+
+class PasswordResetToken(Base):
+    """Password reset tokens"""
+    __tablename__ = "password_reset_tokens"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token = Column(String(255), nullable=False, unique=True, index=True)
+    expires_at = Column(DateTime, nullable=False)
+    is_used = Column(Boolean, default=False, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    
+    # Relationships
+    user = relationship("User", back_populates="reset_tokens")
+    
+    # Indexes
+    __table_args__ = (
+        Index('ix_reset_tokens_expires', 'expires_at'),
+    )
+    
+    def __repr__(self):
+        return f"<PasswordResetToken(user_id={self.user_id}, token='{self.token[:10]}...')>"
 
 
 class UserGroup(Base):

@@ -1,3 +1,4 @@
+# backend/search_service.py
 """
 AI-Powered Search Service
 Implements semantic search, keyword matching, and hybrid ranking
