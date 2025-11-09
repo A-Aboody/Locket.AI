@@ -1059,7 +1059,99 @@ def search_documents(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Search failed: {str(e)}"
         )
-
+    
+@app.post("/api/search/text", response_model=Dict)
+def search_document_text(
+    document_id: int,
+    query: str,
+    case_sensitive: bool = False,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Fast text search within a single document
+    Returns match positions for client-side highlighting
+    """
+    logger.info(f"Text search in document {document_id} by user {current_user.username}: '{query}'")
+    
+    if not query or len(query) < 2:
+        return {
+            "matches": [],
+            "total": 0,
+            "message": "Query too short"
+        }
+    
+    # Check document access
+    if not crud.can_user_access_document(db, current_user.id, document_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this document"
+        )
+    
+    # Get document content
+    document = crud.get_document_by_id(db, document_id)
+    if not document or not document.content:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document content not available"
+        )
+    
+    import re
+    import time
+    
+    start_time = time.time()
+    
+    try:
+        # Escape special regex characters but allow wildcards
+        escaped_query = re.escape(query)
+        
+        # Create regex with optional case sensitivity
+        flags = 0 if case_sensitive else re.IGNORECASE
+        pattern = re.compile(escaped_query, flags)
+        
+        matches = []
+        match_index = 0
+        for match in pattern.finditer(document.content):
+            start = match.start()
+            end = match.end()
+            
+            # Extract context (50 chars before and after)
+            context_start = max(0, start - 50)
+            context_end = min(len(document.content), end + 50)
+            context = document.content[context_start:context_end]
+            
+            # Add ellipsis if truncated
+            if context_start > 0:
+                context = '...' + context
+            if context_end < len(document.content):
+                context = context + '...'
+            
+            matches.append({
+                "index": match_index,
+                "start": start,
+                "end": end,
+                "text": match.group(0),
+                "context": context
+            })
+            match_index += 1
+        
+        search_time_ms = (time.time() - start_time) * 1000
+        
+        logger.info(f"Text search completed in {search_time_ms:.2f}ms, found {len(matches)} matches")
+        
+        return {
+            "matches": matches,
+            "total": len(matches),
+            "search_time_ms": round(search_time_ms, 2),
+            "query": query
+        }
+        
+    except Exception as e:
+        logger.error(f"Text search failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Search failed: {str(e)}"
+        )
 
 @app.post("/api/documents/reindex", response_model=schemas.Message)
 def reindex_all_documents(

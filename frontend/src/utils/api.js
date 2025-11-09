@@ -1,3 +1,4 @@
+//frontend/src/utils/api.js
 import axios from 'axios';
 
 const API_BASE_URL = 'http://127.0.0.1:8001/api';
@@ -174,6 +175,18 @@ export const documentsAPI = {
   
   // Get document statistics
   getStats: (userId) => api.get(`/users/${userId}/stats`),
+  
+  // Search text within a specific document (client-side fallback, optional backend)
+  searchText: (documentId, query, caseSensitive = false) => {
+    return api.post('/search/text', null, {
+      params: { 
+        document_id: documentId, 
+        query, 
+        case_sensitive: caseSensitive 
+      },
+      timeout: 10000, // 10 second timeout for search
+    });
+  },
 };
 
 // Search API
@@ -189,6 +202,18 @@ export const searchAPI = {
   
   // Advanced search with filters
   advancedSearch: (searchData) => api.post('/search/advanced', searchData),
+  
+  // Search text within a document (alternative location)
+  searchInDocument: (documentId, query, caseSensitive = false) => {
+    return api.post('/search/text', null, {
+      params: { 
+        document_id: documentId, 
+        query, 
+        case_sensitive: caseSensitive 
+      },
+      timeout: 10000,
+    });
+  },
 };
 
 // User Groups API
