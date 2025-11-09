@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Box,
   Button,
@@ -21,13 +21,20 @@ import { useNavigate } from 'react-router-dom';
 import { authAPI } from '../utils/api';
 import ForgotPasswordModal from './ForgotPasswordModal';
 
-const AuthForm = ({ onAuthSuccess, onClose, onVerificationRequired }) => {
-  const [isLogin, setIsLogin] = useState(true);
+const AuthForm = ({ isLogin: isLoginProp, onToggleMode, onAuthSuccess, onClose, onVerificationRequired }) => {
+  const [isLogin, setIsLogin] = useState(isLoginProp !== undefined ? isLoginProp : true);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const navigate = useNavigate();
   const toast = useToast();
+
+  // Update isLogin when prop changes
+  useEffect(() => {
+    if (isLoginProp !== undefined) {
+      setIsLogin(isLoginProp);
+    }
+  }, [isLoginProp]);
 
   const [loginData, setLoginData] = useState({ 
     email: '', 
@@ -47,25 +54,40 @@ const AuthForm = ({ onAuthSuccess, onClose, onVerificationRequired }) => {
     setIsLoading(true);
     try {
       const response = await authAPI.login(loginData);
-      localStorage.setItem('token', response.data.access_token);
-      
-      if (response.data.refresh_token && loginData.remember_me) {
-        localStorage.setItem('refresh_token', response.data.refresh_token);
-      }
-      
-      localStorage.setItem('user', JSON.stringify(response.data.user));
 
-      // Check if verification is required
+      // Check if verification is required BEFORE storing anything
       if (response.data.requires_verification && !response.data.user.email_verified) {
+        // Store token temporarily for verification
+        localStorage.setItem('token', response.data.access_token);
+        localStorage.setItem('user', JSON.stringify(response.data.user));
+
+        toast({
+          title: 'Verification Required',
+          description: 'Please verify your email to continue',
+          status: 'warning',
+          duration: 3000,
+          isClosable: true,
+        });
+
+        // Show verification modal
         if (onVerificationRequired) {
           onVerificationRequired(response.data.user);
           // Close the auth form modal so verification modal can be shown
           if (onClose) {
             onClose();
           }
-          return;
         }
+        return;
       }
+
+      // User is verified - store credentials and proceed
+      localStorage.setItem('token', response.data.access_token);
+
+      if (response.data.refresh_token && loginData.remember_me) {
+        localStorage.setItem('refresh_token', response.data.refresh_token);
+      }
+
+      localStorage.setItem('user', JSON.stringify(response.data.user));
 
       toast({
         title: 'Login successful!',
@@ -101,18 +123,19 @@ const AuthForm = ({ onAuthSuccess, onClose, onVerificationRequired }) => {
         full_name: registerData.full_name || null,
       });
 
+      // Store token temporarily for verification modal
       localStorage.setItem('token', response.data.access_token);
       localStorage.setItem('user', JSON.stringify(response.data.user));
 
       toast({
         title: 'Account created!',
-        description: response.data.message || 'Please check your email for verification code',
+        description: 'Please check your email for verification code.',
         status: 'success',
-        duration: 5000,
+        duration: 3000,
         isClosable: true,
       });
 
-      // Always show verification for new registrations
+      // Show verification modal immediately after signup
       if (onVerificationRequired) {
         onVerificationRequired(response.data.user);
         // Close the auth form modal so verification modal can be shown
@@ -141,9 +164,8 @@ const AuthForm = ({ onAuthSuccess, onClose, onVerificationRequired }) => {
         border="1px solid"
         borderColor="primary.600"
         rounded="xl"
-        p={{ base: 6, md: 8 }}
+        p={{ base: 8, md: 10 }}
         w="100%"
-        maxW="400px"
         mx="auto"
         boxShadow="2xl"
       >
@@ -164,13 +186,13 @@ const AuthForm = ({ onAuthSuccess, onClose, onVerificationRequired }) => {
 
         {isLogin ? (
           <>
-            <Heading size="lg" mb={6} color="white" textAlign="center">
+            <Heading size="xl" mb={8} color="white" textAlign="center">
               Log In
             </Heading>
             <form onSubmit={handleLogin}>
-              <VStack spacing={5}>
+              <VStack spacing={6}>
                 <FormControl isRequired>
-                  <FormLabel color="gray.300" mb={1}>
+                  <FormLabel color="gray.300" mb={2} fontSize="md">
                     Email or Username
                   </FormLabel>
                   <Input
@@ -183,15 +205,16 @@ const AuthForm = ({ onAuthSuccess, onClose, onVerificationRequired }) => {
                     bg="primary.900"
                     borderColor="primary.500"
                     color="white"
+                    size="lg"
                     _placeholder={{ color: 'gray.500' }}
                   />
                 </FormControl>
 
                 <FormControl isRequired>
-                  <FormLabel color="gray.300" mb={1}>
+                  <FormLabel color="gray.300" mb={2} fontSize="md">
                     Password
                   </FormLabel>
-                  <InputGroup>
+                  <InputGroup size="lg">
                     <Input
                       type={showPassword ? 'text' : 'password'}
                       placeholder="Enter your password"
@@ -242,6 +265,7 @@ const AuthForm = ({ onAuthSuccess, onClose, onVerificationRequired }) => {
                   type="submit"
                   colorScheme="accent"
                   width="full"
+                  size="lg"
                   isLoading={isLoading}
                   mt={2}
                 >
@@ -253,7 +277,10 @@ const AuthForm = ({ onAuthSuccess, onClose, onVerificationRequired }) => {
                   <Link
                     color="accent.400"
                     fontWeight="semibold"
-                    onClick={() => setIsLogin(false)}
+                    onClick={() => {
+                      if (onToggleMode) onToggleMode();
+                      else setIsLogin(false);
+                    }}
                     cursor="pointer"
                     _hover={{ color: 'accent.300' }}
                   >
@@ -265,13 +292,13 @@ const AuthForm = ({ onAuthSuccess, onClose, onVerificationRequired }) => {
           </>
         ) : (
           <>
-            <Heading size="lg" mb={6} color="white" textAlign="center">
+            <Heading size="xl" mb={8} color="white" textAlign="center">
               Create Account
             </Heading>
             <form onSubmit={handleRegister}>
-              <VStack spacing={5}>
+              <VStack spacing={6}>
                 <FormControl isRequired>
-                  <FormLabel color="gray.300" mb={1}>
+                  <FormLabel color="gray.300" mb={2} fontSize="md">
                     Username
                   </FormLabel>
                   <Input
@@ -287,12 +314,13 @@ const AuthForm = ({ onAuthSuccess, onClose, onVerificationRequired }) => {
                     bg="primary.900"
                     borderColor="primary.500"
                     color="white"
+                    size="lg"
                     _placeholder={{ color: 'gray.500' }}
                   />
                 </FormControl>
 
                 <FormControl isRequired>
-                  <FormLabel color="gray.300" mb={1}>
+                  <FormLabel color="gray.300" mb={2} fontSize="md">
                     Email
                   </FormLabel>
                   <Input
@@ -305,12 +333,13 @@ const AuthForm = ({ onAuthSuccess, onClose, onVerificationRequired }) => {
                     bg="primary.900"
                     borderColor="primary.500"
                     color="white"
+                    size="lg"
                     _placeholder={{ color: 'gray.500' }}
                   />
                 </FormControl>
 
                 <FormControl>
-                  <FormLabel color="gray.300" mb={1}>
+                  <FormLabel color="gray.300" mb={2} fontSize="md">
                     Full Name (optional)
                   </FormLabel>
                   <Input
@@ -326,15 +355,16 @@ const AuthForm = ({ onAuthSuccess, onClose, onVerificationRequired }) => {
                     bg="primary.900"
                     borderColor="primary.500"
                     color="white"
+                    size="lg"
                     _placeholder={{ color: 'gray.500' }}
                   />
                 </FormControl>
 
                 <FormControl isRequired>
-                  <FormLabel color="gray.300" mb={1}>
+                  <FormLabel color="gray.300" mb={2} fontSize="md">
                     Password
                   </FormLabel>
-                  <InputGroup>
+                  <InputGroup size="lg">
                     <Input
                       type={showPassword ? 'text' : 'password'}
                       placeholder="Minimum 6 characters"
@@ -367,6 +397,7 @@ const AuthForm = ({ onAuthSuccess, onClose, onVerificationRequired }) => {
                   type="submit"
                   colorScheme="accent"
                   width="full"
+                  size="lg"
                   isLoading={isLoading}
                   mt={2}
                 >
@@ -378,7 +409,10 @@ const AuthForm = ({ onAuthSuccess, onClose, onVerificationRequired }) => {
                   <Link
                     color="accent.400"
                     fontWeight="semibold"
-                    onClick={() => setIsLogin(true)}
+                    onClick={() => {
+                      if (onToggleMode) onToggleMode();
+                      else setIsLogin(true);
+                    }}
                     cursor="pointer"
                     _hover={{ color: 'accent.300' }}
                   >
