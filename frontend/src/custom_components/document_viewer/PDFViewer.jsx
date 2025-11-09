@@ -31,6 +31,7 @@ const PDFViewer = ({
   return (
     <Box
       ref={scrollContainerRef}
+      className="pdf-viewer-scrollable"
       h="full"
       overflowY="auto"
       overflowX="hidden"
@@ -41,20 +42,24 @@ const PDFViewer = ({
       sx={{
         scrollBehavior: 'auto',
         WebkitOverflowScrolling: 'touch',
+        msOverflowStyle: 'auto !important',
+        scrollbarWidth: 'thin !important',
+        scrollbarColor: '#B0B0B0 #1E1E1E !important',
         '&::-webkit-scrollbar': {
-          width: '12px',
-          background: 'transparent',
+          display: 'block !important',
+          width: '8px !important',
+          background: '#3a3a3a',
         },
         '&::-webkit-scrollbar-track': {
-          background: '#1a1a1a',
+          background: '#3a3a3a',
         },
         '&::-webkit-scrollbar-thumb': {
-          background: '#404040',
-          borderRadius: '6px',
-          border: '2px solid #1a1a1a',
+          background: '#B0B0B0',
+          borderRadius: '4px',
+          border: '1px solid #3a3a3a',
         },
         '&::-webkit-scrollbar-thumb:hover': {
-          background: '#505050',
+          background: '#D0D0D0',
         },
       }}
     >
