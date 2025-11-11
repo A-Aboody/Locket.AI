@@ -28,6 +28,21 @@ const VerificationModal = ({ isOpen, onClose, user, onVerificationComplete }) =>
   const [countdown, setCountdown] = useState(0);
   const toast = useToast();
 
+  // Handle modal close - clear unverified session
+  const handleClose = () => {
+    // Clear localStorage to prevent auto-prompt on refresh
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      const userData = JSON.parse(storedUser);
+      if (!userData.email_verified) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        localStorage.removeItem('refresh_token');
+      }
+    }
+    onClose();
+  };
+
   // Countdown timer for resend
   useEffect(() => {
     let timer;
@@ -141,10 +156,10 @@ const VerificationModal = ({ isOpen, onClose, user, onVerificationComplete }) =>
   };
 
   return (
-    <Modal 
-      isOpen={isOpen} 
-      onClose={onClose} 
-      isCentered 
+    <Modal
+      isOpen={isOpen}
+      onClose={handleClose}
+      isCentered
       closeOnOverlayClick={false}
       size="md"
     >
