@@ -11,7 +11,7 @@ import {
   Tooltip,
   ButtonGroup,
 } from '@chakra-ui/react';
-import { FiGrid, FiList } from 'react-icons/fi';
+import { FiGrid, FiList, FiPlus } from 'react-icons/fi';
 import SearchBar from '../custom_components/SearchBar';
 import SearchResults from '../custom_components/SearchResults';
 import DocumentList from '../custom_components/DocumentList';
@@ -197,9 +197,32 @@ const AllDocumentsPage = () => {
               ) : (
                 <Box maxW="100%">
                   <HStack justify="space-between" mb={4}>
-                    <Text fontSize="xl" fontWeight="bold" color="white">
-                      All Documents
-                    </Text>
+                    <HStack spacing={4}>
+                      <Tooltip label="Upload document" placement="right">
+                        <IconButton
+                          icon={<FiPlus />}
+                          onClick={() => navigate('/upload', { state: { from: '/documents' } })}
+                          aria-label="Upload document"
+                          size="md"
+                          colorScheme="accent"
+                          bg="accent.500"
+                          color="white"
+                          borderRadius="lg"
+                          _hover={{
+                            bg: 'accent.600',
+                            transform: 'translateY(-2px)',
+                          }}
+                          _active={{
+                            bg: 'accent.700',
+                            transform: 'translateY(0)',
+                          }}
+                          transition="all 0.2s ease-in-out"
+                        />
+                      </Tooltip>
+                      <Text fontSize="xl" fontWeight="bold" color="white">
+                        All Documents
+                      </Text>
+                    </HStack>
                     <ButtonGroup size="sm" isAttached variant="outline">
                       <Tooltip label="Card view">
                         <IconButton

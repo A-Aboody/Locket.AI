@@ -17,14 +17,13 @@ const NavTabs = () => {
     if (path === '/dashboard' || path === '/') return 0;
     if (path === '/documents') return 1;
     if (path === '/my-uploads') return 2;
-    if (path === '/upload') return 3;
     return 0;
   };
 
   const handleTabChange = (index) => {
     // Prevent unnecessary navigation if already on the tab
     if (index === getActiveTabIndex()) return;
-    
+
     switch (index) {
       case 0:
         navigate('/dashboard');
@@ -34,9 +33,6 @@ const NavTabs = () => {
         break;
       case 2:
         navigate('/my-uploads');
-        break;
-      case 3:
-        navigate('/upload');
         break;
       default:
         navigate('/dashboard');
@@ -127,7 +123,7 @@ const NavTabs = () => {
             fontWeight="medium"
             fontSize="sm"
             py={3}
-            _selected={{ 
+            _selected={{
               color: 'accent.500',
             }}
             sx={{
@@ -137,22 +133,6 @@ const NavTabs = () => {
             }}
           >
             My Uploads
-          </Tab>
-          <Tab
-            color="gray.400"
-            fontWeight="medium"
-            fontSize="sm"
-            py={3}
-            _selected={{ 
-              color: 'accent.500',
-            }}
-            sx={{
-              '&[data-selected]': {
-                fontWeight: 'semibold',
-              }
-            }}
-          >
-            Upload
           </Tab>
         </TabList>
       </Tabs>

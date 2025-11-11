@@ -78,7 +78,7 @@ const UploadButton = ({
       </Button>
 
       {!uploading && isUploadDisabled && (
-        <Alert status="info" variant="left-accent" rounded="md" mt={3}>
+        <Alert status="info" variant="left-accent" rounded="md" mt={3} bg="blue.100" color="gray.900">
           <AlertIcon />
           <AlertDescription fontSize="sm">
             {!visibility 
