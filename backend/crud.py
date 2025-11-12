@@ -586,15 +586,48 @@ def delete_document(db: Session, document_id: int) -> bool:
     return False
 
 
+def update_document_visibility(db: Session, document_id: int, visibility: str, user_group_id: Optional[int] = None) -> Optional[Document]:
+    """
+    Update document visibility and group association
+
+    Args:
+        db: Database session
+        document_id: Document ID
+        visibility: New visibility setting ('private', 'public', or 'group')
+        user_group_id: Group ID if visibility is 'group', otherwise None
+
+    Returns:
+        Updated document if successful, None otherwise
+    """
+    document = get_document_by_id(db, document_id)
+    if not document:
+        return None
+
+    # Update visibility
+    document.visibility = visibility
+
+    # Update group association
+    if visibility == 'group':
+        document.user_group_id = user_group_id
+    else:
+        document.user_group_id = None
+
+    document.updated_at = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(document)
+    return document
+
+
 def user_owns_document(db: Session, user_id: int, document_id: int) -> bool:
     """
     Check if user owns a specific document
-    
+
     Args:
         db: Database session
         user_id: User ID
         document_id: Document ID
-    
+
     Returns:
         True if user owns the document
     """

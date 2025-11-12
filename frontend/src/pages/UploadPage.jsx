@@ -142,6 +142,7 @@ const UploadPage = () => {
         onProfile={handleProfile}
         onSettings={handleSettings}
         onLogout={handleLogout}
+        onViewDocument={undefined}
       />
     </Box>
   );

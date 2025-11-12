@@ -1000,6 +1000,95 @@ def delete_document(
     return {"message": "Document deleted successfully"}
 
 
+@app.put("/api/documents/{document_id}/visibility", response_model=schemas.DocumentResponse)
+def update_document_visibility(
+    document_id: int,
+    visibility_data: schemas.DocumentVisibilityUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update document visibility - Add document to a user group or change visibility
+
+    - Regular users can only update documents they uploaded
+    - Admin can update any public document
+    - When adding to a group, user must be a member of that group (or admin)
+    - Automatically updates visibility to 'group' when adding to a group
+    """
+    document = crud.get_document_by_id(db, document_id)
+
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found"
+        )
+
+    # Check permissions
+    is_owner = document.uploaded_by_id == current_user.id
+    is_admin = current_user.role == UserRole.ADMIN
+    is_public_doc = document.visibility == 'public'
+
+    # Regular users can only update their own documents
+    # Admin can update any public document or their own documents
+    if not is_owner and not (is_admin and is_public_doc):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only add documents you uploaded to groups. Admins can add any public document."
+        )
+
+    # Validate group access if changing to group visibility
+    if visibility_data.visibility == 'group':
+        if not visibility_data.user_group_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Group ID required for group visibility"
+            )
+
+        # Check if group exists
+        group = crud.get_user_group_by_id(db, visibility_data.user_group_id)
+        if not group:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Group not found"
+            )
+
+        # Check if user is member of the group (or admin)
+        if not is_admin and not crud.is_user_in_group(db, current_user.id, visibility_data.user_group_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You must be a member of the group to add documents to it"
+            )
+
+    # Update document visibility
+    updated_document = crud.update_document_visibility(
+        db,
+        document_id,
+        visibility_data.visibility,
+        visibility_data.user_group_id
+    )
+
+    if not updated_document:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update document visibility"
+        )
+
+    return {
+        "id": updated_document.id,
+        "filename": updated_document.filename,
+        "file_type": updated_document.file_type,
+        "file_size": updated_document.file_size,
+        "page_count": updated_document.page_count,
+        "uploaded_at": updated_document.uploaded_at,
+        "updated_at": updated_document.updated_at,
+        "uploaded_by_id": updated_document.uploaded_by_id,
+        "uploaded_by_username": updated_document.uploaded_by.username if updated_document.uploaded_by else "Unknown",
+        "visibility": updated_document.visibility,
+        "user_group_id": updated_document.user_group_id,
+        "user_group_name": updated_document.user_group.name if updated_document.user_group else None
+    }
+
+
 # Search routes
 
 @app.post("/api/search", response_model=schemas.SearchResponse)
@@ -1436,6 +1525,54 @@ def get_group_stats(
 
     stats = crud.get_group_statistics(db, group_id)
     return stats
+
+
+@app.get("/api/user-groups/{group_id}/documents")
+def get_group_documents(
+    group_id: int,
+    skip: int = 0,
+    limit: int = 100,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all documents in a user group
+    Only group members can view group documents
+    """
+    group = crud.get_user_group_by_id(db, group_id)
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Group not found"
+        )
+
+    # Check if user is member of the group
+    if not crud.is_user_in_group(db, current_user.id, group_id) and current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not a member of this group"
+        )
+
+    documents = crud.get_group_documents(db, group_id, skip=skip, limit=limit)
+
+    # Format response
+    formatted_docs = []
+    for doc in documents:
+        formatted_docs.append({
+            "id": doc.id,
+            "filename": doc.filename,
+            "file_type": doc.file_type,
+            "file_size": doc.file_size,
+            "page_count": doc.page_count,
+            "uploaded_at": doc.uploaded_at,
+            "uploaded_by_id": doc.uploaded_by_id,
+            "uploaded_by_username": doc.uploaded_by.username if doc.uploaded_by else "Unknown",
+            "visibility": doc.visibility,
+            "user_group_id": doc.user_group_id,
+            "user_group_name": doc.user_group.name if doc.user_group else None
+        })
+
+    return formatted_docs
 
 
 # Add cleanup endpoint (admin only)

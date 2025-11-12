@@ -14,7 +14,7 @@ import { useRef } from 'react';
 import UserGroupsModal from './UserGroupsModal';
 import ChangePasswordModal from './ChangePasswordModal';
 
-const FloatingMenu = ({ onProfile, onSettings, onLogout }) => {
+const FloatingMenu = ({ onProfile, onSettings, onLogout, onViewDocument }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [showUserGroups, setShowUserGroups] = useState(false);
   const { isOpen: isChangePasswordOpen, onOpen: onChangePasswordOpen, onClose: onChangePasswordClose } = useDisclosure();
@@ -174,9 +174,10 @@ const FloatingMenu = ({ onProfile, onSettings, onLogout }) => {
       </Box>
 
       {/* User Groups Modal */}
-      <UserGroupsModal 
-        isOpen={showUserGroups} 
-        onClose={() => setShowUserGroups(false)} 
+      <UserGroupsModal
+        isOpen={showUserGroups}
+        onClose={() => setShowUserGroups(false)}
+        onViewDocument={onViewDocument}
       />
 
       {/* Change Password Modal */}

@@ -28,6 +28,7 @@ import {
 } from 'react-icons/fi';
 import MembersList from './MembersList';
 import AddMemberForm from './AddMemberForm';
+import GroupDocuments from './GroupDocuments';
 
 const GroupCard = ({
   group,
@@ -40,6 +41,7 @@ const GroupCard = ({
   onLeave,
   onAddMember,
   onRemoveMember,
+  onViewDocument,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -272,6 +274,18 @@ const GroupCard = ({
               )}
             </Box>
           )}
+
+          {/* Documents Section */}
+          <Box mt={6}>
+            <Divider borderColor="primary.600" mb={4} />
+            <GroupDocuments
+              groupId={group.id}
+              groupName={group.name}
+              isOwner={isOwner}
+              currentUserId={currentUserId}
+              onViewDocument={onViewDocument}
+            />
+          </Box>
         </Box>
       </Collapse>
     </Box>

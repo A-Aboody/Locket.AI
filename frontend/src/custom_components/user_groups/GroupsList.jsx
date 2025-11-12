@@ -20,6 +20,7 @@ const GroupsList = ({
   onAddMember,
   onRemoveMember,
   onCreateFirstGroup,
+  onViewDocument,
 }) => {
   const isGroupOwner = (group) => group.created_by_id === currentUserId;
   const isGroupMember = (group) => {
@@ -86,6 +87,7 @@ const GroupsList = ({
           onLeave={onLeave}
           onAddMember={onAddMember}
           onRemoveMember={onRemoveMember}
+          onViewDocument={onViewDocument}
         />
       ))}
     </VStack>
