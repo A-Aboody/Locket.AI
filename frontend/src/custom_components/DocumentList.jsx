@@ -30,27 +30,29 @@ import {
   Td,
   Divider,
 } from '@chakra-ui/react';
-import { 
-  FiFile, 
-  FiEye, 
-  FiTrash2, 
-  FiDownload, 
-  FiUser, 
+import {
+  FiFile,
+  FiEye,
+  FiTrash2,
+  FiDownload,
+  FiUser,
   FiCalendar,
   FiFileText,
   FiUsers,
   FiEyeOff,
   FiGlobe,
   FiClock,
+  FiUserPlus,
 } from 'react-icons/fi';
 import { documentsAPI } from '../utils/api';
 import { formatFileSize, formatDate, getFileTypeColor } from '../utils/formatters';
+import AddDocumentToGroupModal from './user_groups/AddDocumentToGroupModal';
 
-const DocumentList = ({ 
-  documents = [], 
-  onViewDocument, 
-  onDelete, 
-  emptyMessage = 'No documents found', 
+const DocumentList = ({
+  documents = [],
+  onViewDocument,
+  onDelete,
+  emptyMessage = 'No documents found',
   loading = false,
   viewMode = 'card',
 }) => {
@@ -58,7 +60,13 @@ const DocumentList = ({
   const [deleteName, setDeleteName] = useState('');
   const [hoveredRow, setHoveredRow] = useState(null);
   const [hoveredCard, setHoveredCard] = useState(null);
+  const [addToGroupDocument, setAddToGroupDocument] = useState(null);
   const { isOpen, onOpen, onClose } = useDisclosure();
+  const {
+    isOpen: isAddToGroupOpen,
+    onOpen: onAddToGroupOpen,
+    onClose: onAddToGroupClose,
+  } = useDisclosure();
   const toast = useToast();
   const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
 
@@ -100,6 +108,25 @@ const DocumentList = ({
 
   const canDelete = (doc) => {
     return currentUser.role === 'admin' || doc.uploaded_by_username === currentUser.username;
+  };
+
+  const canAddToGroup = (doc) => {
+    const isOwner = doc.uploaded_by_username === currentUser.username;
+    const isAdmin = currentUser.role === 'admin';
+    const isPublic = doc.visibility === 'public';
+    return isOwner || (isAdmin && isPublic);
+  };
+
+  const handleAddToGroupClick = (doc) => {
+    setAddToGroupDocument(doc);
+    onAddToGroupOpen();
+  };
+
+  const handleAddToGroupSuccess = () => {
+    if (onDelete) {
+      onDelete(); // Refresh the document list
+    }
+    onAddToGroupClose();
   };
 
   const getFileExtension = (filename) => {
@@ -243,6 +270,19 @@ const DocumentList = ({
                             _hover={{ color: 'white', bg: 'primary.700' }}
                           />
                         </Tooltip>
+                        {canAddToGroup(doc) && (
+                          <Tooltip label="Add to Group">
+                            <IconButton
+                              icon={<FiUserPlus />}
+                              size="xs"
+                              variant="ghost"
+                              color="gray.400"
+                              onClick={() => handleAddToGroupClick(doc)}
+                              aria-label="Add to group"
+                              _hover={{ color: 'accent.400', bg: 'primary.700' }}
+                            />
+                          </Tooltip>
+                        )}
                         {canDelete(doc) && (
                           <Tooltip label="Delete">
                             <IconButton
@@ -531,6 +571,19 @@ const DocumentList = ({
                           _hover={{ bg: 'primary.600', color: 'white' }}
                         />
                       </Tooltip>
+                      {canAddToGroup(doc) && (
+                        <Tooltip label="Add to Group">
+                          <IconButton
+                            icon={<FiUserPlus />}
+                            size="xs"
+                            variant="ghost"
+                            color="gray.400"
+                            onClick={() => handleAddToGroupClick(doc)}
+                            aria-label="Add to group"
+                            _hover={{ bg: 'primary.600', color: 'accent.400' }}
+                          />
+                        </Tooltip>
+                      )}
                       {canDelete(doc) && (
                         <Tooltip label="Delete">
                           <IconButton
@@ -606,6 +659,14 @@ const DocumentList = ({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Add to Group Modal */}
+      <AddDocumentToGroupModal
+        isOpen={isAddToGroupOpen}
+        onClose={onAddToGroupClose}
+        document={addToGroupDocument}
+        onSuccess={handleAddToGroupSuccess}
+      />
     </>
   );
 };

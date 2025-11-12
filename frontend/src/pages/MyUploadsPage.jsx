@@ -141,6 +141,11 @@ const MyUploadsPage = () => {
     setPreviewDocumentId(documentId);
   };
 
+  const handleViewDocumentFullScreen = (documentId) => {
+    // Open document viewer directly (used for user groups modal)
+    setViewingDocumentId(documentId);
+  };
+
   const handleOpenFullViewer = () => {
     if (previewDocumentId) {
       setViewingDocumentId(previewDocumentId);
@@ -294,6 +299,7 @@ const MyUploadsPage = () => {
         onProfile={handleProfile}
         onSettings={handleSettings}
         onLogout={handleLogout}
+        onViewDocument={handleViewDocumentFullScreen}
       />
     </Box>
   );

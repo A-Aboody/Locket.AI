@@ -137,6 +137,11 @@ const AllDocumentsPage = () => {
     setPreviewDocumentId(documentId);
   };
 
+  const handleViewDocumentFullScreen = (documentId) => {
+    // Open document viewer directly (used for user groups modal)
+    setViewingDocumentId(documentId);
+  };
+
   const handleOpenFullViewer = () => {
     if (previewDocumentId) {
       setViewingDocumentId(previewDocumentId);
@@ -290,6 +295,7 @@ const AllDocumentsPage = () => {
         onProfile={handleProfile}
         onSettings={handleSettings}
         onLogout={handleLogout}
+        onViewDocument={handleViewDocumentFullScreen}
       />
     </Box>
   );

@@ -24,7 +24,7 @@ import GroupsList from './user_groups/GroupsList';
 import DeleteGroupDialog from './user_groups/DeleteGroupDialog';
 import { userGroupsAPI, apiUtils } from '../utils/api';
 
-const UserGroupsModal = ({ isOpen, onClose }) => {
+const UserGroupsModal = ({ isOpen, onClose, onViewDocument }) => {
   const [activeTab, setActiveTab] = useState(0);
   const [userGroups, setUserGroups] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -299,6 +299,7 @@ const UserGroupsModal = ({ isOpen, onClose }) => {
                     onAddMember={handleAddMember}
                     onRemoveMember={handleRemoveMember}
                     onCreateFirstGroup={() => setActiveTab(0)}
+                    onViewDocument={onViewDocument}
                   />
                 </TabPanel>
               </TabPanels>
