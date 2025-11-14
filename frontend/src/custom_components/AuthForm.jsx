@@ -100,9 +100,25 @@ const AuthForm = ({ isLogin: isLoginProp, onToggleMode, onAuthSuccess, onClose, 
       if (onAuthSuccess) onAuthSuccess(response.data.user);
       else navigate('/dashboard');
     } catch (error) {
+      // Handle FastAPI validation errors (422)
+      let errorMessage = 'An error occurred';
+
+      if (error.response?.data?.detail) {
+        const detail = error.response.data.detail;
+
+        // Check if it's an array of validation errors
+        if (Array.isArray(detail)) {
+          errorMessage = detail.map(err => err.msg).join(', ');
+        } else if (typeof detail === 'string') {
+          errorMessage = detail;
+        } else if (typeof detail === 'object') {
+          errorMessage = JSON.stringify(detail);
+        }
+      }
+
       toast({
         title: 'Login failed',
-        description: error.response?.data?.detail || 'An error occurred',
+        description: errorMessage,
         status: 'error',
         duration: 5000,
         isClosable: true,
@@ -144,9 +160,25 @@ const AuthForm = ({ isLogin: isLoginProp, onToggleMode, onAuthSuccess, onClose, 
         }
       }
     } catch (error) {
+      // Handle FastAPI validation errors (422)
+      let errorMessage = 'An error occurred';
+
+      if (error.response?.data?.detail) {
+        const detail = error.response.data.detail;
+
+        // Check if it's an array of validation errors
+        if (Array.isArray(detail)) {
+          errorMessage = detail.map(err => err.msg).join(', ');
+        } else if (typeof detail === 'string') {
+          errorMessage = detail;
+        } else if (typeof detail === 'object') {
+          errorMessage = JSON.stringify(detail);
+        }
+      }
+
       toast({
         title: 'Registration failed',
-        description: error.response?.data?.detail || 'An error occurred',
+        description: errorMessage,
         status: 'error',
         duration: 5000,
         isClosable: true,

@@ -148,7 +148,10 @@ export const documentsAPI = {
   
   // Get document content
   getContent: (documentId) => api.get(`/documents/${documentId}/content`),
-  
+
+  // Get AI-generated document summary
+  getSummary: (documentId) => api.get(`/documents/${documentId}/summary`),
+
   // Generate file download URL
   getFileUrl: (documentId) => {
     const token = localStorage.getItem('token');
@@ -160,6 +163,9 @@ export const documentsAPI = {
     return api.get(`/documents/${documentId}/download`, {
       responseType: 'blob',
       timeout: 60000, // 1 minute for downloads
+      headers: {
+        'Cache-Control': 'no-cache'
+      }
     });
   },
   

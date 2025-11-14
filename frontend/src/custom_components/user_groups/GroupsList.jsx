@@ -30,10 +30,10 @@ const GroupsList = ({
 
   if (isLoading) {
     return (
-      <Center py={20}>
-        <VStack spacing={4}>
-          <Spinner size="xl" color="accent.500" thickness="3px" />
-          <Text color="gray.400">Loading your groups...</Text>
+      <Center py={16}>
+        <VStack spacing={3}>
+          <Spinner size="lg" color="accent.500" thickness="2px" />
+          <Text color="gray.500" fontSize="sm">Loading groups...</Text>
         </VStack>
       </Center>
     );
@@ -41,31 +41,36 @@ const GroupsList = ({
 
   if (groups.length === 0) {
     return (
-      <Center py={20} px={6}>
+      <Center py={20} px={8}>
         <VStack spacing={4}>
-          <Box 
-            p={6} 
-            bg="primary.800" 
-            rounded="full"
-            border="2px dashed"
-            borderColor="primary.600"
-          >
-            <FiUsers size={48} color="#4A5568" />
+          <Box color="gray.600">
+            <FiUsers size={48} />
           </Box>
-          <Text color="white" fontSize="lg" fontWeight="medium">
-            No Groups Yet
-          </Text>
-          <Text color="gray.400" textAlign="center" maxW="300px">
-            Create your first group to start collaborating and sharing documents
-          </Text>
+          <VStack spacing={1.5}>
+            <Text color="white" fontSize="md" fontWeight="600">
+              No groups yet
+            </Text>
+            <Text color="gray.500" textAlign="center" maxW="280px" fontSize="sm">
+              Create a group to collaborate and share documents
+            </Text>
+          </VStack>
           <Button
-            colorScheme="accent"
+            bg="accent.500"
+            color="white"
             mt={2}
             onClick={onCreateFirstGroup}
-            leftIcon={<FiPlus />}
-            size="lg"
+            size="sm"
+            rounded="md"
+            fontWeight="500"
+            _hover={{
+              bg: 'accent.600',
+            }}
+            _active={{
+              bg: 'accent.700',
+            }}
+            transition="all 0.15s"
           >
-            Create Your First Group
+            Create Group
           </Button>
         </VStack>
       </Center>

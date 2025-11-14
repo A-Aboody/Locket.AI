@@ -4,7 +4,6 @@ import {
   HStack,
   VStack,
   Text,
-  Badge,
   Icon,
   useToast,
   AlertDialog,
@@ -18,8 +17,6 @@ import {
   IconButton,
   Button,
   SimpleGrid,
-  Card,
-  CardBody,
   Tooltip,
   Center,
   Table,
@@ -28,7 +25,6 @@ import {
   Tr,
   Th,
   Td,
-  Divider,
 } from '@chakra-ui/react';
 import {
   FiFile,
@@ -45,7 +41,7 @@ import {
   FiUserPlus,
 } from 'react-icons/fi';
 import { documentsAPI } from '../utils/api';
-import { formatFileSize, formatDate, getFileTypeColor } from '../utils/formatters';
+import { formatFileSize, formatDate } from '../utils/formatters';
 import AddDocumentToGroupModal from './user_groups/AddDocumentToGroupModal';
 
 const DocumentList = ({
@@ -207,140 +203,121 @@ const DocumentList = ({
   if (viewMode === 'card') {
     return (
       <>
-        <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={4}>
+        <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={3}>
           {documents.map((doc) => {
             const fileIconData = getFileIcon(doc.filename);
             const visibilityDisplay = getVisibilityDisplay(doc);
             const isHovered = hoveredCard === doc.id;
-            
+
             return (
-              <Card
+              <Box
                 key={doc.id}
-                bg="primary.800"
+                p={4}
                 border="1px"
-                borderColor={isHovered ? 'accent.500' : 'primary.600'}
-                transition="all 0.2s"
+                borderColor="whiteAlpha.100"
+                borderRadius="md"
+                transition="all 0.15s"
                 cursor="pointer"
                 onClick={() => onViewDocument(doc.id)}
                 onMouseEnter={() => setHoveredCard(doc.id)}
                 onMouseLeave={() => setHoveredCard(null)}
                 _hover={{
-                  borderColor: 'accent.500',
-                  transform: 'translateY(-2px)',
+                  bg: 'whiteAlpha.50',
+                  borderColor: 'whiteAlpha.200',
                 }}
               >
-                <CardBody p={4}>
-                  <VStack align="stretch" spacing={3}>
-                    {/* Header with Icon and Actions */}
-                    <HStack justify="space-between">
-                      <Box 
-                        p={2.5} 
-                        bg="primary.700" 
-                        rounded="md"
-                        border="1px"
-                        borderColor="primary.600"
-                      >
-                        <Icon as={fileIconData.icon} boxSize={5} color={fileIconData.color} />
-                      </Box>
-                      <HStack 
-                        spacing={1} 
-                        onClick={(e) => e.stopPropagation()}
-                        opacity={isHovered ? 1 : 0}
-                        transition="opacity 0.2s"
-                      >
-                        <Tooltip label="View">
-                          <IconButton
-                            icon={<FiEye />}
-                            size="xs"
-                            variant="ghost"
-                            color="gray.400"
-                            onClick={() => onViewDocument(doc.id)}
-                            aria-label="View document"
-                            _hover={{ color: 'accent.400', bg: 'primary.700' }}
-                          />
-                        </Tooltip>
-                        <Tooltip label="Download">
-                          <IconButton
-                            icon={<FiDownload />}
-                            size="xs"
-                            variant="ghost"
-                            color="gray.400"
-                            onClick={() => handleDownload(doc.id)}
-                            aria-label="Download document"
-                            _hover={{ color: 'white', bg: 'primary.700' }}
-                          />
-                        </Tooltip>
-                        {canAddToGroup(doc) && (
-                          <Tooltip label="Add to Group">
-                            <IconButton
-                              icon={<FiUserPlus />}
-                              size="xs"
-                              variant="ghost"
-                              color="gray.400"
-                              onClick={() => handleAddToGroupClick(doc)}
-                              aria-label="Add to group"
-                              _hover={{ color: 'accent.400', bg: 'primary.700' }}
-                            />
-                          </Tooltip>
-                        )}
-                        {canDelete(doc) && (
-                          <Tooltip label="Delete">
-                            <IconButton
-                              icon={<FiTrash2 />}
-                              size="xs"
-                              variant="ghost"
-                              color="gray.400"
-                              onClick={() => handleDeleteClick(doc.id, doc.filename)}
-                              aria-label="Delete document"
-                              _hover={{ color: 'red.400', bg: 'primary.700' }}
-                            />
-                          </Tooltip>
-                        )}
-                      </HStack>
-                    </HStack>
-
-                    {/* Filename */}
-                    <VStack align="start" spacing={1}>
-                      <Text 
-                        color="white" 
-                        fontWeight="medium" 
-                        fontSize="sm"
-                        noOfLines={2}
-                        lineHeight="short"
-                        minH="32px"
-                      >
-                        {doc.filename}
-                      </Text>
-                      <Text color="gray.500" fontSize="xs">
-                        {getFileExtension(doc.filename)} • {formatFileSize(doc.file_size)}
-                      </Text>
-                    </VStack>
-
-                    <Divider borderColor="primary.600" />
-
-                    {/* Metadata */}
-                    <VStack align="stretch" spacing={2} fontSize="xs">
-                      {/* Shared With */}
-                      <HStack spacing={2} color="gray.400">
-                        <Icon as={visibilityDisplay.icon} boxSize={3} color={visibilityDisplay.color} />
-                        <Text>{visibilityDisplay.text}</Text>
-                      </HStack>
-
-                      {/* Uploaded By */}
-                      <HStack spacing={2} color="gray.400">
-                        <Icon as={FiUser} boxSize={3} />
-                        <Text>{doc.uploaded_by_username}</Text>
-                      </HStack>
-
-                      {/* Date */}
-                      <HStack spacing={2} color="gray.400">
-                        <Icon as={FiClock} boxSize={3} />
-                        <Text>{formatDate(doc.uploaded_at)}</Text>
-                      </HStack>
-                    </VStack>
+                <VStack align="stretch" spacing={3}>
+                  {/* Filename */}
+                  <VStack align="start" spacing={1.5}>
+                    <Text
+                      color="white"
+                      fontWeight="medium"
+                      fontSize="sm"
+                      noOfLines={2}
+                      lineHeight="1.4"
+                    >
+                      {doc.filename}
+                    </Text>
+                    <Text color="gray.500" fontSize="xs">
+                      {getFileExtension(doc.filename)} • {formatFileSize(doc.file_size)}
+                    </Text>
                   </VStack>
-                </CardBody>
-              </Card>
+
+                  {/* Metadata */}
+                  <VStack align="stretch" spacing={1.5} fontSize="xs" color="gray.500">
+                    <HStack spacing={1.5}>
+                      <Icon as={visibilityDisplay.icon} boxSize={3} color={visibilityDisplay.color} />
+                      <Text>{visibilityDisplay.text}</Text>
+                    </HStack>
+                    <HStack spacing={1.5}>
+                      <Icon as={FiUser} boxSize={3} />
+                      <Text>{doc.uploaded_by_username}</Text>
+                    </HStack>
+                    <HStack spacing={1.5}>
+                      <Icon as={FiClock} boxSize={3} />
+                      <Text>{formatDate(doc.uploaded_at)}</Text>
+                    </HStack>
+                  </VStack>
+
+                  {/* Actions */}
+                  <HStack
+                    spacing={0}
+                    pt={2}
+                    onClick={(e) => e.stopPropagation()}
+                    opacity={isHovered ? 1 : 0}
+                    transition="opacity 0.15s"
+                  >
+                    <Tooltip label="View">
+                      <IconButton
+                        icon={<FiEye />}
+                        size="xs"
+                        variant="ghost"
+                        color="gray.500"
+                        onClick={() => onViewDocument(doc.id)}
+                        aria-label="View document"
+                        _hover={{ color: 'white', bg: 'whiteAlpha.100' }}
+                      />
+                    </Tooltip>
+                    <Tooltip label="Download">
+                      <IconButton
+                        icon={<FiDownload />}
+                        size="xs"
+                        variant="ghost"
+                        color="gray.500"
+                        onClick={() => handleDownload(doc.id)}
+                        aria-label="Download document"
+                        _hover={{ color: 'white', bg: 'whiteAlpha.100' }}
+                      />
+                    </Tooltip>
+                    {canAddToGroup(doc) && (
+                      <Tooltip label="Add to Group">
+                        <IconButton
+                          icon={<FiUserPlus />}
+                          size="xs"
+                          variant="ghost"
+                          color="gray.500"
+                          onClick={() => handleAddToGroupClick(doc)}
+                          aria-label="Add to group"
+                          _hover={{ color: 'white', bg: 'whiteAlpha.100' }}
+                        />
+                      </Tooltip>
+                    )}
+                    {canDelete(doc) && (
+                      <Tooltip label="Delete">
+                        <IconButton
+                          icon={<FiTrash2 />}
+                          size="xs"
+                          variant="ghost"
+                          color="gray.500"
+                          onClick={() => handleDeleteClick(doc.id, doc.filename)}
+                          aria-label="Delete document"
+                          _hover={{ color: 'red.400', bg: 'whiteAlpha.100' }}
+                        />
+                      </Tooltip>
+                    )}
+                  </HStack>
+                </VStack>
+              </Box>
             );
           })}
         </SimpleGrid>
@@ -402,77 +379,71 @@ const DocumentList = ({
     );
   }
 
-  // List View - Minimalistic File Explorer Style
+  // List View
   return (
     <>
-      <Box 
-        bg="primary.800" 
-        rounded="lg" 
-        border="1px" 
-        borderColor="primary.600" 
-        overflow="hidden"
-      >
+      <Box overflow="hidden">
         <Table variant="unstyled" size="sm">
           <Thead>
-            <Tr bg="primary.700" borderBottom="1px" borderColor="primary.600">
-              <Th 
-                color="gray.400" 
-                fontSize="xs" 
-                textTransform="none" 
-                fontWeight="medium"
+            <Tr borderBottom="1px" borderColor="whiteAlpha.200">
+              <Th
+                color="gray.500"
+                fontSize="xs"
+                textTransform="none"
+                fontWeight="normal"
                 py={3}
-                px={4}
+                px={3}
               >
                 Name
               </Th>
-              <Th 
-                color="gray.400" 
-                fontSize="xs" 
-                textTransform="none" 
-                fontWeight="medium"
+              <Th
+                color="gray.500"
+                fontSize="xs"
+                textTransform="none"
+                fontWeight="normal"
                 py={3}
-                px={4}
+                px={3}
               >
                 Shared With
               </Th>
-              <Th 
-                color="gray.400" 
-                fontSize="xs" 
-                textTransform="none" 
-                fontWeight="medium"
+              <Th
+                color="gray.500"
+                fontSize="xs"
+                textTransform="none"
+                fontWeight="normal"
                 py={3}
-                px={4}
+                px={3}
               >
                 Uploaded By
               </Th>
-              <Th 
-                color="gray.400" 
-                fontSize="xs" 
-                textTransform="none" 
-                fontWeight="medium"
+              <Th
+                color="gray.500"
+                fontSize="xs"
+                textTransform="none"
+                fontWeight="normal"
                 py={3}
-                px={4}
+                px={3}
               >
                 Date Modified
               </Th>
-              <Th 
-                color="gray.400" 
-                fontSize="xs" 
-                textTransform="none" 
-                fontWeight="medium"
+              <Th
+                color="gray.500"
+                fontSize="xs"
+                textTransform="none"
+                fontWeight="normal"
                 py={3}
-                px={4}
+                px={3}
                 isNumeric
               >
                 Size
               </Th>
-              <Th 
-                color="gray.400" 
-                fontSize="xs" 
-                textTransform="none" 
-                fontWeight="medium"
+              <Th
+                color="gray.500"
+                fontSize="xs"
+                textTransform="none"
+                fontWeight="normal"
                 py={3}
-                px={4}
+                px={3}
                 w="120px"
               >
               </Th>
@@ -483,29 +454,29 @@ const DocumentList = ({
               const fileIconData = getFileIcon(doc.filename);
               const visibilityDisplay = getVisibilityDisplay(doc);
               const isHovered = hoveredRow === doc.id;
-              
+
               return (
-                <Tr 
-                  key={doc.id} 
-                  bg={isHovered ? 'primary.700' : 'transparent'}
+                <Tr
+                  key={doc.id}
+                  bg={isHovered ? 'whiteAlpha.50' : 'transparent'}
                   transition="background 0.15s"
                   cursor="pointer"
                   onClick={() => onViewDocument(doc.id)}
                   onMouseEnter={() => setHoveredRow(doc.id)}
                   onMouseLeave={() => setHoveredRow(null)}
                   borderBottom="1px"
-                  borderColor="primary.600"
+                  borderColor="whiteAlpha.100"
                   _last={{ borderBottom: 'none' }}
                 >
-                  <Td py={3} px={4}>
+                  <Td py={3} px={3}>
                     <HStack spacing={3}>
-                      <Icon 
-                        as={fileIconData.icon} 
-                        boxSize={4} 
-                        color={fileIconData.color} 
+                      <Icon
+                        as={fileIconData.icon}
+                        boxSize={4}
+                        color={fileIconData.color}
                       />
-                      <Text 
-                        color="gray.200" 
+                      <Text
+                        color="white"
                         fontSize="sm"
                         fontWeight="normal"
                         noOfLines={1}
@@ -515,36 +486,36 @@ const DocumentList = ({
                       </Text>
                     </HStack>
                   </Td>
-                  <Td py={3} px={4}>
+                  <Td py={3} px={3}>
                     <HStack spacing={2}>
                       <Icon as={visibilityDisplay.icon} boxSize={3} color={visibilityDisplay.color} />
-                      <Text color="gray.400" fontSize="sm" fontWeight="normal">
+                      <Text color="gray.500" fontSize="sm" fontWeight="normal">
                         {visibilityDisplay.text}
                       </Text>
                     </HStack>
                   </Td>
-                  <Td py={3} px={4}>
-                    <Text color="gray.400" fontSize="sm" fontWeight="normal">
+                  <Td py={3} px={3}>
+                    <Text color="gray.500" fontSize="sm" fontWeight="normal">
                       {doc.uploaded_by_username}
                     </Text>
                   </Td>
-                  <Td py={3} px={4}>
-                    <Text color="gray.400" fontSize="sm" fontWeight="normal">
+                  <Td py={3} px={3}>
+                    <Text color="gray.500" fontSize="sm" fontWeight="normal">
                       {formatDate(doc.uploaded_at)}
                     </Text>
                   </Td>
-                  <Td py={3} px={4} isNumeric>
-                    <Text color="gray.400" fontSize="sm" fontWeight="normal">
+                  <Td py={3} px={3} isNumeric>
+                    <Text color="gray.500" fontSize="sm" fontWeight="normal">
                       {formatFileSize(doc.file_size)}
                     </Text>
                   </Td>
-                  <Td 
-                    py={3} 
-                    px={4} 
+                  <Td
+                    py={3}
+                    px={3}
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <HStack 
-                      spacing={1} 
+                    <HStack
+                      spacing={0}
                       justify="flex-end"
                       opacity={isHovered ? 1 : 0}
                       transition="opacity 0.15s"
@@ -554,10 +525,10 @@ const DocumentList = ({
                           icon={<FiEye />}
                           size="xs"
                           variant="ghost"
-                          color="gray.400"
+                          color="gray.500"
                           onClick={() => onViewDocument(doc.id)}
                           aria-label="View document"
-                          _hover={{ bg: 'primary.600', color: 'accent.400' }}
+                          _hover={{ bg: 'whiteAlpha.100', color: 'white' }}
                         />
                       </Tooltip>
                       <Tooltip label="Download">
@@ -565,10 +536,10 @@ const DocumentList = ({
                           icon={<FiDownload />}
                           size="xs"
                           variant="ghost"
-                          color="gray.400"
+                          color="gray.500"
                           onClick={() => handleDownload(doc.id)}
                           aria-label="Download"
-                          _hover={{ bg: 'primary.600', color: 'white' }}
+                          _hover={{ bg: 'whiteAlpha.100', color: 'white' }}
                         />
                       </Tooltip>
                       {canAddToGroup(doc) && (
@@ -577,10 +548,10 @@ const DocumentList = ({
                             icon={<FiUserPlus />}
                             size="xs"
                             variant="ghost"
-                            color="gray.400"
+                            color="gray.500"
                             onClick={() => handleAddToGroupClick(doc)}
                             aria-label="Add to group"
-                            _hover={{ bg: 'primary.600', color: 'accent.400' }}
+                            _hover={{ bg: 'whiteAlpha.100', color: 'white' }}
                           />
                         </Tooltip>
                       )}
@@ -590,10 +561,10 @@ const DocumentList = ({
                             icon={<FiTrash2 />}
                             size="xs"
                             variant="ghost"
-                            color="gray.400"
+                            color="gray.500"
                             onClick={() => handleDeleteClick(doc.id, doc.filename)}
                             aria-label="Delete document"
-                            _hover={{ bg: 'primary.600', color: 'red.400' }}
+                            _hover={{ bg: 'whiteAlpha.100', color: 'red.400' }}
                           />
                         </Tooltip>
                       )}

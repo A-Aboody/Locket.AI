@@ -207,74 +207,99 @@ const UserGroupsModal = ({ isOpen, onClose, onViewDocument }) => {
 
   return (
     <>
-      <Modal isOpen={isOpen} onClose={onClose} size="2xl" scrollBehavior="inside">
+      <Modal isOpen={isOpen} onClose={onClose} size="4xl" scrollBehavior="inside">
         <ModalOverlay bg="blackAlpha.700" backdropFilter="blur(4px)" />
-        <ModalContent 
-          bg="primary.900" 
-          border="1px" 
-          borderColor="primary.600" 
-          maxH="85vh"
+        <ModalContent
+          bg="primary.900"
+          border="1px"
+          borderColor="primary.600"
+          maxH="88vh"
           mx={4}
         >
-          <ModalHeader 
-            color="white" 
-            borderBottom="1px" 
+          <ModalHeader
+            color="white"
+            borderBottom="1px"
             borderColor="primary.600"
-            pb={4}
+            py={5}
+            px={8}
           >
-            <HStack spacing={3}>
-              <Box 
-                p={2} 
-                bg="accent.500" 
-                rounded="lg"
-                display="flex"
-                alignItems="center"
-                justifyContent="center"
-              >
-                <FiUsers size={20} color="white" />
-              </Box>
-              <Text fontSize="xl">User Groups</Text>
+            <HStack spacing={3} align="center">
+              <Text fontSize="xl" fontWeight="600" letterSpacing="-0.01em">
+                User Groups
+              </Text>
+              {userGroups.length > 0 && (
+                <Badge
+                  bg="primary.700"
+                  color="gray.400"
+                  fontSize="xs"
+                  px={2}
+                  py={0.5}
+                  rounded="md"
+                  fontWeight="500"
+                >
+                  {userGroups.length}
+                </Badge>
+              )}
             </HStack>
           </ModalHeader>
-          <ModalCloseButton color="gray.400" _hover={{ color: 'white', bg: 'primary.700' }} />
-          
+          <ModalCloseButton
+            color="gray.400"
+            _hover={{ color: 'white', bg: 'primary.700' }}
+            top={5}
+            right={6}
+          />
+
           <ModalBody p={0}>
-            <Tabs 
-              colorScheme="accent" 
-              variant="soft-rounded"
-              index={activeTab} 
+            <Tabs
+              colorScheme="accent"
+              variant="unstyled"
+              index={activeTab}
               onChange={setActiveTab}
             >
-              <Box px={6} pt={4} pb={2} bg="primary.800">
-                <TabList bg="primary.700" p={1} rounded="lg">
-                  <Tab 
-                    color="gray.400" 
-                    _selected={{ color: 'white', bg: 'accent.500' }}
-                    fontWeight="medium"
-                    flex={1}
+              <Box px={8} pt={4} pb={0} borderBottom="1px" borderColor="primary.600">
+                <TabList gap={1}>
+                  <Tab
+                    color="gray.400"
+                    _selected={{
+                      color: 'white',
+                      borderBottom: '2px solid',
+                      borderColor: 'accent.500',
+                    }}
+                    fontWeight="500"
+                    fontSize="sm"
+                    px={4}
+                    pb={3}
+                    pt={0}
+                    transition="all 0.15s"
+                    _hover={{
+                      color: 'gray.300',
+                    }}
                   >
                     <HStack spacing={2}>
-                      <FiPlus size={16} />
-                      <Text>Create Group</Text>
+                      <FiPlus size={14} />
+                      <Text>New Group</Text>
                     </HStack>
                   </Tab>
-                  <Tab 
-                    color="gray.400" 
-                    _selected={{ color: 'white', bg: 'accent.500' }}
-                    fontWeight="medium"
-                    flex={1}
+                  <Tab
+                    color="gray.400"
+                    _selected={{
+                      color: 'white',
+                      borderBottom: '2px solid',
+                      borderColor: 'accent.500',
+                    }}
+                    fontWeight="500"
+                    fontSize="sm"
+                    px={4}
+                    pb={3}
+                    pt={0}
+                    transition="all 0.15s"
+                    _hover={{
+                      color: 'gray.300',
+                    }}
                   >
                     <HStack spacing={2}>
-                      <FiUsers size={16} />
-                      <Text>My Groups</Text>
-                      <Badge 
-                        colorScheme="accent" 
-                        fontSize="xs" 
-                        px={2} 
-                        rounded="full"
-                      >
-                        {userGroups.length}
-                      </Badge>
+                      <FiUsers size={14} />
+                      <Text>All Groups</Text>
                     </HStack>
                   </Tab>
                 </TabList>
@@ -282,7 +307,7 @@ const UserGroupsModal = ({ isOpen, onClose, onViewDocument }) => {
 
               <TabPanels>
                 {/* Create Group Tab */}
-                <TabPanel p={6}>
+                <TabPanel px={8} py={6}>
                   <GroupCreationForm onGroupCreated={handleGroupCreated} />
                 </TabPanel>
 

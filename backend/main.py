@@ -22,6 +22,7 @@ import schemas
 import crud
 import auth
 import document_processing
+import search_service
 from dependencies import get_current_user, require_admin, require_verified_email, require_admin_or_verified_email
 from database_models import User, UserRole, UserStatus, Document
 from email_service import email_service
@@ -910,6 +911,95 @@ def get_document_content(
     }
 
 
+@app.get("/api/documents/{document_id}/summary", response_model=schemas.DocumentSummaryResponse)
+def get_document_summary(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get AI-generated summary of document content - Respects visibility settings
+    Uses caching to improve performance for repeated requests
+    Admins can view summaries of all documents
+    """
+    from datetime import datetime, timezone, timedelta
+
+    document = crud.get_document_by_id(db, document_id)
+
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found"
+        )
+
+    # Check visibility permissions (same as content endpoint)
+    if current_user.role != UserRole.ADMIN:
+        if document.visibility == 'private' and document.uploaded_by_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to view this document"
+            )
+
+        if document.visibility == 'group':
+            if not crud.is_user_in_group(db, current_user.id, document.user_group_id):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You don't have permission to view this group document"
+                )
+
+    # Check if we have a cached summary that's still valid
+    # Cache is considered valid if it exists and was generated within last 30 days
+    cache_expiry_days = 30
+    is_cached = False
+
+    if document.summary and document.summary_generated_at:
+        # Check if cache is still fresh
+        # Make sure both datetimes are timezone-aware
+        summary_time = document.summary_generated_at
+        if summary_time.tzinfo is None:
+            summary_time = summary_time.replace(tzinfo=timezone.utc)
+
+        cache_age = datetime.now(timezone.utc) - summary_time
+        if cache_age < timedelta(days=cache_expiry_days):
+            # Return cached summary
+            return {
+                "id": document.id,
+                "filename": document.filename,
+                "summary": document.summary,
+                "is_cached": True,
+                "generated_at": document.summary_generated_at
+            }
+
+    # No valid cache - generate new summary
+    if not document.content or not document.content.strip():
+        summary = "This document appears to be empty or contains no readable text."
+    else:
+        try:
+            # Generate summary using AI
+            summary = search_service.generate_document_summary(
+                content=document.content,
+                filename=document.filename,
+                max_sentences=5
+            )
+        except Exception as e:
+            print(f"[ERROR] Failed to generate summary for document {document_id}: {e}")
+            # Fallback summary
+            summary = "Unable to generate summary at this time. Please try again later."
+
+    # Update document with new summary and timestamp
+    document.summary = summary
+    document.summary_generated_at = datetime.now(timezone.utc)
+    db.commit()
+
+    return {
+        "id": document.id,
+        "filename": document.filename,
+        "summary": summary,
+        "is_cached": False,
+        "generated_at": document.summary_generated_at
+    }
+
+
 @app.get("/api/documents/{document_id}/download")
 def download_document(
     document_id: int,
@@ -952,13 +1042,16 @@ def download_document(
     
     # Determine media type
     media_type = document.file_type or "application/octet-stream"
-    
+
     return FileResponse(
         path=document.file_path,
         media_type=media_type,
         filename=document.filename,
         headers={
-            "Content-Disposition": f'inline; filename="{document.filename}"'
+            "Content-Disposition": f'inline; filename="{document.filename}"',
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "X-Content-Type-Options": "nosniff",
+            "Accept-Ranges": "bytes"
         }
     )
 

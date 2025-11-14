@@ -200,6 +200,15 @@ class DocumentContentResponse(BaseModel):
     page_count: int
 
 
+class DocumentSummaryResponse(BaseModel):
+    """Schema for document AI summary response"""
+    id: int
+    filename: str
+    summary: str
+    is_cached: bool
+    generated_at: Optional[datetime] = None
+
+
 # Search Schemas
 
 class SearchQuery(BaseModel):
