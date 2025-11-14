@@ -91,13 +91,7 @@ const MyUploadsPage = () => {
   };
 
   const handleSettings = () => {
-    toast({
-      title: 'Settings',
-      description: 'Settings panel coming soon!',
-      status: 'info',
-      duration: 3000,
-      isClosable: true,
-    });
+    navigate('/settings');
   };
 
   const handleSearch = async (query) => {

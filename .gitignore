@@ -32,6 +32,7 @@ uploads/
 *.swp
 *.swo
 .DS_Store
+.claude/
 
 # Frontend
 node_modules/

@@ -195,7 +195,9 @@ class Document(Base):
     # AI/Search fields
     embedding = Column(JSON, nullable=True)
     content_preview = Column(String(500), nullable=True)
-    
+    summary = Column(Text, nullable=True)  # AI-generated summary (cached)
+    summary_generated_at = Column(DateTime, nullable=True)  # Track when summary was generated
+
     uploaded_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     uploaded_by_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)

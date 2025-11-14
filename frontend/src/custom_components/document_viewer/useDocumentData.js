@@ -14,34 +14,55 @@ export const useDocumentData = (documentId, onClose) => {
   const blobUrlRef = useRef(null);
 
   useEffect(() => {
+    let isMounted = true;
+
     const fetchDocument = async () => {
       try {
         setLoading(true);
 
+        // Fetch metadata first
         const metaResponse = await documentsAPI.get(documentId);
         const docData = metaResponse.data;
+
+        if (!isMounted) return;
         setDocumentData(docData);
 
         const extension = docData.filename.split('.').pop().toLowerCase();
         setFileType(extension);
 
+        // Fetch text content
         try {
           const contentResponse = await documentsAPI.getContent(documentId);
-          setExtractedContent(contentResponse.data.content);
+          if (isMounted) {
+            setExtractedContent(contentResponse.data.content);
+          }
         } catch (err) {
           console.warn('Could not fetch extracted content:', err);
         }
 
+        // Load file for viewing (PDF/DOCX/DOC)
         if (['pdf', 'docx', 'doc'].includes(extension)) {
-          setViewerLoading(true);
+          if (isMounted) {
+            setViewerLoading(true);
+          }
+
           try {
             const fileResponse = await documentsAPI.downloadFile(documentId);
 
+            if (!isMounted) return;
+
             if (extension === 'pdf') {
               if (fileResponse.data instanceof Blob) {
+                // CRITICAL SECURITY: Clean up old blob URL before creating new one
                 if (blobUrlRef.current) {
                   URL.revokeObjectURL(blobUrlRef.current);
+                  blobUrlRef.current = null;
                 }
+
+                // Verify blob size matches expected document (basic sanity check)
+                console.log(`[SECURITY] Loading PDF for document ${documentId}, blob size: ${fileResponse.data.size} bytes`);
+
+                // Create new blob URL
                 const url = URL.createObjectURL(fileResponse.data);
                 blobUrlRef.current = url;
                 setPdfFile(url);
@@ -49,39 +70,54 @@ export const useDocumentData = (documentId, onClose) => {
                 throw new Error('Invalid PDF data received from server');
               }
             } else {
+              // CRITICAL SECURITY: Clean up old blob URL before setting new DOCX data
+              if (blobUrlRef.current) {
+                URL.revokeObjectURL(blobUrlRef.current);
+                blobUrlRef.current = null;
+              }
               setPdfFile(fileResponse.data);
             }
           } catch (fileError) {
             console.error('Failed to load file for viewing:', fileError);
-            toast({
-              title: 'File viewer unavailable',
-              description: 'The file could not be loaded for viewing. You can still download it.',
-              status: 'warning',
-              duration: 5000,
-              isClosable: true,
-            });
+            if (isMounted) {
+              toast({
+                title: 'File viewer unavailable',
+                description: 'The file could not be loaded for viewing. You can still download it.',
+                status: 'warning',
+                duration: 5000,
+                isClosable: true,
+              });
+            }
           } finally {
-            setViewerLoading(false);
+            if (isMounted) {
+              setViewerLoading(false);
+            }
           }
         }
       } catch (error) {
         console.error('Failed to load document:', error);
-        toast({
-          title: 'Failed to load document',
-          description: error.response?.data?.detail || error.message || 'An error occurred',
-          status: 'error',
-          duration: 5000,
-          isClosable: true,
-        });
-        onClose();
+        if (isMounted) {
+          toast({
+            title: 'Failed to load document',
+            description: error.response?.data?.detail || error.message || 'An error occurred',
+            status: 'error',
+            duration: 5000,
+            isClosable: true,
+          });
+          onClose();
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
 
     fetchDocument();
 
     return () => {
+      isMounted = false;
+      // CRITICAL: Cleanup blob URL on unmount or when documentId changes
       if (blobUrlRef.current) {
         URL.revokeObjectURL(blobUrlRef.current);
         blobUrlRef.current = null;

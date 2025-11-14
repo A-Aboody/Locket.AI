@@ -6,6 +6,7 @@ import HomePage from './pages/HomePage';
 import AllDocumentsPage from './pages/AllDocumentsPage';
 import MyUploadsPage from './pages/MyUploadsPage';
 import UploadPage from './pages/UploadPage';
+import SettingsPage from './pages/SettingsPage';
 import AuthPage from './pages/AuthPage';
 import NotFoundPage from './pages/NotFoundPage';
 
@@ -42,6 +43,14 @@ function App() {
         element={
           <ProtectedRoute>
             <UploadPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <ProtectedRoute>
+            <SettingsPage />
           </ProtectedRoute>
         }
       />

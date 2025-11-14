@@ -94,7 +94,7 @@ const GroupCreationForm = ({ onGroupCreated }) => {
   return (
     <VStack spacing={5} align="stretch">
       <FormControl isRequired>
-        <FormLabel color="gray.300" fontWeight="medium" mb={2}>
+        <FormLabel color="gray.300" fontWeight="500" mb={2} fontSize="sm">
           Group Name
         </FormLabel>
         <Input
@@ -105,49 +105,31 @@ const GroupCreationForm = ({ onGroupCreated }) => {
               setFormData(prev => ({ ...prev, name: value }));
             }
           }}
-          placeholder="Enter group name"
+          placeholder="e.g., Engineering Team"
           color="white"
           bg="primary.800"
-          border="2px"
-          borderColor={formData.name.length === MAX_GROUP_NAME_LENGTH ? 'yellow.500' : 'primary.600'}
-          _hover={{ borderColor: formData.name.length === MAX_GROUP_NAME_LENGTH ? 'yellow.400' : 'primary.500' }}
-          _focus={{ 
-            borderColor: formData.name.length === MAX_GROUP_NAME_LENGTH ? 'yellow.500' : 'accent.500', 
-            boxShadow: formData.name.length === MAX_GROUP_NAME_LENGTH 
-              ? '0 0 0 1px var(--chakra-colors-yellow-500)' 
-              : '0 0 0 1px var(--chakra-colors-accent-500)' 
+          border="1px"
+          borderColor="primary.600"
+          _hover={{ borderColor: 'primary.500' }}
+          _focus={{
+            borderColor: 'accent.500',
+            boxShadow: 'none',
           }}
-          size="lg"
+          _placeholder={{ color: 'gray.600' }}
+          size="md"
+          rounded="md"
           maxLength={MAX_GROUP_NAME_LENGTH}
         />
-        <HStack justify="space-between" mt={1}>
-          <Text 
-            fontSize="xs" 
-            color={
-              formData.name.length === 0 ? 'gray.500' :
-              formData.name.length >= MAX_GROUP_NAME_LENGTH * 0.9 ? 'yellow.400' : 
-              'gray.400'
-            }
-          >
-            {formData.name.length === 0 ? 'Maximum 50 characters' : `${formData.name.length}/${MAX_GROUP_NAME_LENGTH} characters`}
+        {formData.name.length > 0 && (
+          <Text fontSize="xs" color="gray.500" mt={1.5}>
+            {formData.name.length}/{MAX_GROUP_NAME_LENGTH}
           </Text>
-          {formData.name.length === MAX_GROUP_NAME_LENGTH && (
-            <HStack spacing={1}>
-              <Icon as={FiAlertCircle} color="yellow.400" boxSize={3} />
-              <Text fontSize="xs" color="yellow.400">
-                Character limit reached
-              </Text>
-            </HStack>
-          )}
-        </HStack>
+        )}
       </FormControl>
 
       <FormControl>
-        <FormLabel color="gray.300" fontWeight="medium" mb={2}>
-          Description
-          <Text as="span" color="gray.500" fontWeight="normal" ml={2}>
-            (Optional)
-          </Text>
+        <FormLabel color="gray.300" fontWeight="500" mb={2} fontSize="sm">
+          Description <Text as="span" color="gray.500" fontWeight="400">(optional)</Text>
         </FormLabel>
         <Textarea
           value={formData.description}
@@ -155,18 +137,20 @@ const GroupCreationForm = ({ onGroupCreated }) => {
           placeholder="What's this group for?"
           color="white"
           bg="primary.800"
-          border="2px"
+          border="1px"
           borderColor="primary.600"
           _hover={{ borderColor: 'primary.500' }}
-          _focus={{ borderColor: 'accent.500', boxShadow: '0 0 0 1px var(--chakra-colors-accent-500)' }}
+          _focus={{ borderColor: 'accent.500', boxShadow: 'none' }}
+          _placeholder={{ color: 'gray.600' }}
           rows={3}
           resize="none"
+          rounded="md"
         />
       </FormControl>
 
       <FormControl>
-        <FormLabel color="gray.300" fontWeight="medium" mb={2}>
-          Add Members
+        <FormLabel color="gray.300" fontWeight="500" mb={2} fontSize="sm">
+          Members <Text as="span" color="gray.500" fontWeight="400">(optional)</Text>
         </FormLabel>
         <UserSearchInput
           onUserSelect={handleAddMember}
@@ -184,19 +168,29 @@ const GroupCreationForm = ({ onGroupCreated }) => {
       </FormControl>
 
       <Button
-        colorScheme="accent"
+        bg="accent.500"
+        color="white"
         onClick={handleCreateGroup}
         isLoading={isCreating}
         loadingText="Creating..."
-        leftIcon={<FiPlus />}
-        size="lg"
+        size="md"
         mt={2}
+        rounded="md"
+        fontWeight="500"
         isDisabled={!formData.name.trim()}
+        _hover={{
+          bg: 'accent.600',
+        }}
+        _active={{
+          bg: 'accent.700',
+        }}
         _disabled={{
           bg: 'primary.700',
           color: 'gray.500',
           cursor: 'not-allowed',
+          opacity: 0.6,
         }}
+        transition="all 0.15s"
       >
         Create Group
       </Button>

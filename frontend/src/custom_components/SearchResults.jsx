@@ -4,7 +4,6 @@ import {
   VStack,
   HStack,
   Text,
-  Badge,
   Icon,
   Button,
   Spinner,
@@ -17,28 +16,21 @@ import {
   AlertDialogOverlay,
   useDisclosure,
   IconButton,
-  Card,
-  CardBody,
   Tooltip,
   Center,
-  Avatar,
-  Divider,
 } from '@chakra-ui/react';
-import { 
-  FiFile, 
-  FiEye, 
-  FiZap, 
-  FiTrash2, 
+import {
+  FiFile,
+  FiEye,
+  FiTrash2,
   FiDownload,
   FiFileText,
-  FiUser,
-  FiCalendar,
   FiUsers,
   FiEyeOff,
   FiGlobe,
   FiSearch,
 } from 'react-icons/fi';
-import { formatFileSize, formatDate, getFileTypeColor } from '../utils/formatters';
+import { formatFileSize, formatDate } from '../utils/formatters';
 import { documentsAPI } from '../utils/api';
 
 const SearchResults = ({ 
@@ -109,15 +101,15 @@ const SearchResults = ({
 
   const getVisibilityInfo = (doc) => {
     if (doc.visibility === 'private') {
-      return { icon: FiEyeOff, label: 'Private', color: 'gray' };
+      return { icon: FiEyeOff, label: 'Private', color: 'gray.500' };
     }
     if (doc.visibility === 'public') {
-      return { icon: FiGlobe, label: 'Public', color: 'green' };
+      return { icon: FiGlobe, label: 'Public', color: 'green.400' };
     }
     if (doc.visibility === 'group') {
-      return { icon: FiUsers, label: doc.user_group_name || 'Group', color: 'accent' };
+      return { icon: FiUsers, label: doc.user_group_name || 'Group', color: 'accent.400' };
     }
-    return { icon: FiEyeOff, label: 'Private', color: 'gray' };
+    return { icon: FiEyeOff, label: 'Private', color: 'gray.500' };
   };
 
   const handleDownload = (documentId) => {
@@ -172,189 +164,133 @@ const SearchResults = ({
 
   return (
     <>
-      <Box bg="primary.900" rounded="xl" border="1px" borderColor="primary.600" overflow="hidden">
+      <VStack spacing={0} align="stretch">
         {/* Header */}
-        <Box 
-          bg="primary.800" 
-          p={5} 
-          borderBottom="1px" 
-          borderColor="primary.600"
-        >
-          <HStack justify="space-between" flexWrap="wrap" spacing={4}>
-            <HStack spacing={3}>
-              <Box 
-                p={2} 
-                bg="accent.500" 
-                rounded="lg"
-              >
-                <FiZap size={20} color="white" />
-              </Box>
-              <VStack align="start" spacing={0}>
-                <Text fontWeight="bold" color="white" fontSize="lg">
-                  {results.length} result{results.length !== 1 ? 's' : ''}
-                </Text>
-                <Text color="gray.400" fontSize="sm">
-                  for "{query}"
-                </Text>
-              </VStack>
-            </HStack>
-            <Badge colorScheme="accent" fontSize="sm" px={3} py={1}>
+        <Box pb={3} borderBottom="2px" borderColor="whiteAlpha.200">
+          <HStack justify="space-between" align="baseline">
+            <Text color="gray.400" fontSize="sm" fontWeight="normal">
+              {results.length} result{results.length !== 1 ? 's' : ''} for "{query}"
+            </Text>
+            <Text color="gray.500" fontSize="xs">
               {searchTime}ms
-            </Badge>
+            </Text>
           </HStack>
         </Box>
 
         {/* Results */}
-        <VStack spacing={0} align="stretch" divider={<Divider borderColor="primary.600" />}>
+        <VStack spacing={0} align="stretch" pt={1}>
           {results.map((result) => {
             const fileIconData = getFileIcon(result.filename);
             const visibilityInfo = getVisibilityInfo(result);
-            
+
             return (
-              <Card
+              <Box
                 key={result.id}
-                bg="transparent"
-                border="none"
-                rounded="none"
-                _hover={{ bg: 'primary.800' }}
-                transition="all 0.2s"
+                py={5}
+                borderBottom="1px"
+                borderColor="whiteAlpha.100"
+                _last={{ borderBottom: 'none' }}
+                _hover={{ bg: 'whiteAlpha.50' }}
+                transition="background 0.15s"
               >
-                <CardBody p={6}>
-                  <VStack align="stretch" spacing={4}>
-                    {/* Header */}
-                    <HStack justify="space-between" align="start">
-                      <HStack spacing={4} flex={1}>
-                        <Box 
-                          p={3} 
-                          bg="primary.700" 
-                          rounded="lg"
-                          border="1px"
-                          borderColor="primary.600"
+                <VStack align="stretch" spacing={3}>
+                  {/* Header */}
+                  <HStack justify="space-between" align="start">
+                    <VStack align="start" spacing={2} flex={1}>
+                      <HStack spacing={2}>
+                        <Icon
+                          as={fileIconData.icon}
+                          boxSize={4}
+                          color={fileIconData.color}
+                        />
+                        <Text
+                          fontWeight="medium"
+                          fontSize="md"
+                          color="white"
+                          cursor="pointer"
+                          _hover={{ color: 'gray.300' }}
+                          onClick={() => onViewDocument(result.id)}
                         >
-                          <Icon 
-                            as={fileIconData.icon} 
-                            boxSize={6} 
-                            color={fileIconData.color}
-                          />
-                        </Box>
-                        
-                        <VStack align="start" spacing={2} flex={1}>
-                          <Text 
-                            fontWeight="semibold" 
-                            fontSize="lg" 
-                            color="white"
-                            cursor="pointer"
-                            _hover={{ color: 'accent.400' }}
-                            onClick={() => onViewDocument(result.id)}
-                          >
-                            {result.filename}
-                          </Text>
-                          
-                          {/* Badges */}
-                          <HStack spacing={2} flexWrap="wrap">
-                            <Badge
-                              colorScheme={getFileTypeColor(result.filename)}
-                              fontSize="xs"
-                              px={2}
-                              py={0.5}
-                            >
-                              {getFileExtension(result.filename)}
-                            </Badge>
-                            <Badge
-                              colorScheme={visibilityInfo.color}
-                              fontSize="xs"
-                              px={2}
-                              py={0.5}
-                            >
-                              <HStack spacing={1}>
-                                <Icon as={visibilityInfo.icon} boxSize={2.5} />
-                                <Text>{visibilityInfo.label}</Text>
-                              </HStack>
-                            </Badge>
-                          </HStack>
-                        </VStack>
+                          {result.filename}
+                        </Text>
                       </HStack>
 
-                      {/* Actions */}
-                      <HStack spacing={1}>
-                        <Tooltip label="View document">
-                          <IconButton
-                            icon={<FiEye />}
-                            size="sm"
-                            variant="ghost"
-                            color="accent.400"
-                            onClick={() => onViewDocument(result.id)}
-                            aria-label="View document"
-                            _hover={{ color: 'accent.300', bg: 'primary.700' }}
-                          />
-                        </Tooltip>
-                        <Tooltip label="Download">
-                          <IconButton
-                            icon={<FiDownload />}
-                            size="sm"
-                            variant="ghost"
-                            color="gray.400"
-                            onClick={() => handleDownload(result.id)}
-                            aria-label="Download document"
-                            _hover={{ color: 'white', bg: 'primary.700' }}
-                          />
-                        </Tooltip>
-                        {canDelete(result) && (
-                          <Tooltip label="Delete">
-                            <IconButton
-                              icon={<FiTrash2 />}
-                              size="sm"
-                              variant="ghost"
-                              color="gray.400"
-                              onClick={() => handleDeleteClick(result.id, result.filename)}
-                              aria-label="Delete document"
-                              _hover={{ color: 'red.400', bg: 'primary.700' }}
-                            />
-                          </Tooltip>
-                        )}
-                      </HStack>
-                    </HStack>
-
-                    {/* Metadata */}
-                    <HStack spacing={4} fontSize="xs" color="gray.400" flexWrap="wrap">
-                      <HStack spacing={1}>
-                        <Icon as={FiUser} boxSize={3} />
+                      {/* Metadata - single line */}
+                      <HStack spacing={3} fontSize="xs" color="gray.500" flexWrap="wrap" pl={6}>
+                        <Text>{getFileExtension(result.filename)}</Text>
+                        <Text>•</Text>
+                        <HStack spacing={1}>
+                          <Icon as={visibilityInfo.icon} boxSize={3} color={visibilityInfo.color} />
+                          <Text>{visibilityInfo.label}</Text>
+                        </HStack>
+                        <Text>•</Text>
                         <Text>{result.uploaded_by_username}</Text>
-                      </HStack>
-                      <HStack spacing={1}>
-                        <Icon as={FiCalendar} boxSize={3} />
+                        <Text>•</Text>
                         <Text>{formatDate(result.uploaded_at)}</Text>
-                      </HStack>
-                      <HStack spacing={1}>
-                        <Icon as={FiFile} boxSize={3} />
+                        <Text>•</Text>
                         <Text>{formatFileSize(result.file_size)}</Text>
+                        <Text>•</Text>
+                        <Text>{result.page_count} {result.page_count === 1 ? 'page' : 'pages'}</Text>
                       </HStack>
-                      <Text>•</Text>
-                      <Text>{result.page_count} {result.page_count === 1 ? 'page' : 'pages'}</Text>
-                    </HStack>
+                    </VStack>
 
-                    {/* Snippet */}
-                    {result.snippet && (
-                      <Box
-                        bg="primary.800"
-                        p={4}
-                        rounded="md"
-                        fontSize="sm"
-                        color="gray.300"
-                        borderLeft="3px solid"
-                        borderColor="accent.500"
-                        lineHeight="tall"
-                      >
-                        <Text>{result.snippet}</Text>
-                      </Box>
-                    )}
-                  </VStack>
-                </CardBody>
-              </Card>
+                    {/* Actions */}
+                    <HStack spacing={0}>
+                      <Tooltip label="View">
+                        <IconButton
+                          icon={<FiEye />}
+                          size="sm"
+                          variant="ghost"
+                          color="gray.500"
+                          onClick={() => onViewDocument(result.id)}
+                          aria-label="View document"
+                          _hover={{ color: 'white', bg: 'whiteAlpha.100' }}
+                        />
+                      </Tooltip>
+                      <Tooltip label="Download">
+                        <IconButton
+                          icon={<FiDownload />}
+                          size="sm"
+                          variant="ghost"
+                          color="gray.500"
+                          onClick={() => handleDownload(result.id)}
+                          aria-label="Download document"
+                          _hover={{ color: 'white', bg: 'whiteAlpha.100' }}
+                        />
+                      </Tooltip>
+                      {canDelete(result) && (
+                        <Tooltip label="Delete">
+                          <IconButton
+                            icon={<FiTrash2 />}
+                            size="sm"
+                            variant="ghost"
+                            color="gray.500"
+                            onClick={() => handleDeleteClick(result.id, result.filename)}
+                            aria-label="Delete document"
+                            _hover={{ color: 'red.400', bg: 'whiteAlpha.100' }}
+                          />
+                        </Tooltip>
+                      )}
+                    </HStack>
+                  </HStack>
+
+                  {/* Snippet */}
+                  {result.snippet && (
+                    <Box
+                      pl={0}
+                      fontSize="sm"
+                      color="gray.400"
+                      lineHeight="1.6"
+                    >
+                      <Text>{result.snippet}</Text>
+                    </Box>
+                  )}
+                </VStack>
+              </Box>
             );
           })}
         </VStack>
-      </Box>
+      </VStack>
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog isOpen={isOpen} onClose={onClose} isCentered>

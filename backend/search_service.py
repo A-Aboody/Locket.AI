@@ -322,23 +322,246 @@ def rank_search_results(
 def reindex_document(document_id: int, content: str, filename: str) -> Dict:
     """
     Generate embeddings and metadata for a document
-    
+
     Args:
         document_id: Document ID
         content: Document text content
         filename: Document filename
-    
+
     Returns:
         Dictionary with embedding and preview
     """
     # Generate embedding from content + filename
     combined_text = f"{filename}\n\n{content or ''}"
     embedding = generate_embedding(combined_text)
-    
+
     # Create preview
     preview = content[:500] if content else ""
-    
+
     return {
         'embedding': embedding,
         'content_preview': preview
     }
+
+
+def generate_document_summary(content: str, filename: str, max_sentences: int = 4) -> str:
+    """
+    Generate an intelligent extractive summary using sentence embeddings and content analysis.
+    Selects the most representative and informative sentences from the document.
+
+    Args:
+        content: Full document text content
+        filename: Document filename for context
+        max_sentences: Maximum number of sentences in summary (default: 4 for conciseness)
+
+    Returns:
+        Extractive summary as a string
+    """
+    if not content or not content.strip():
+        return "This document appears to be empty or contains no readable text."
+
+    import re
+
+    # Clean up the content first - normalize whitespace
+    content = re.sub(r'\s+', ' ', content)
+
+    # Remove common header/footer artifacts
+    content = re.sub(r'\b(page|Page|PAGE)\s+\d+\b', '', content)
+    content = re.sub(r'\d+\s+of\s+\d+', '', content)
+
+    # Split content into sentences with improved regex
+    sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z])', content.strip())
+
+    # Key content indicators (words that suggest important information)
+    key_indicators = [
+        'purpose', 'objective', 'goal', 'aims', 'designed', 'focuses', 'examines',
+        'proposes', 'describes', 'presents', 'introduces', 'analyzes', 'discusses',
+        'demonstrates', 'explores', 'investigates', 'reveals', 'shows', 'finds',
+        'concludes', 'recommends', 'suggests', 'argues', 'claims', 'emphasizes',
+        'highlights', 'important', 'significant', 'critical', 'essential', 'key',
+        'main', 'primary', 'fundamental', 'central', 'major', 'crucial'
+    ]
+
+    def is_quality_sentence(sent: str) -> bool:
+        """Enhanced quality check for sentences"""
+        sent = sent.strip()
+
+        # Length check - prefer medium to long sentences (8-50 words)
+        word_count = len(sent.split())
+        if word_count < 8 or word_count > 50:
+            return False
+
+        # Skip sentences that are mostly dots (table of contents)
+        if sent.count('.') > word_count * 0.4:
+            return False
+
+        # Skip sentences with excessive punctuation
+        punct_ratio = sum(c in '.,;:!?-()[]{}' for c in sent) / len(sent)
+        if punct_ratio > 0.25:
+            return False
+
+        # Skip if too many numbers/dates (likely metadata)
+        digit_ratio = sum(c.isdigit() for c in sent) / len(sent)
+        if digit_ratio > 0.15:
+            return False
+
+        # Skip common metadata patterns
+        skip_patterns = [
+            r'^\d+\.?\s*\d*\.?\s*[A-Z]',  # "1.2 SECTION"
+            r'\.{3,}',  # "....."
+            r'^\s*\d+\s*$',  # Just numbers
+            r'table\s+of\s+contents',
+            r'appendix\s+[A-Z]',
+            r'copyright|©|\(c\)',  # Copyright notices
+            r'^(figure|fig\.|table|tbl\.)\s+\d+',  # Figure/table references
+            r'^\s*references?\s*$',  # Reference headers
+            r'^\s*bibliography\s*$',
+        ]
+        for pattern in skip_patterns:
+            if re.search(pattern, sent, re.IGNORECASE):
+                return False
+
+        # Must be mostly words (not symbols/numbers)
+        word_chars = sum(c.isalpha() or c.isspace() for c in sent)
+        if word_chars < len(sent) * 0.65:
+            return False
+
+        # Skip if sentence is just a title/header (all caps or title case with no verbs)
+        if sent.isupper() or (sent.istitle() and not any(word in sent.lower() for word in ['is', 'are', 'was', 'were', 'has', 'have', 'will', 'can', 'should'])):
+            return False
+
+        return True
+
+    def get_sentence_importance_score(sent: str) -> float:
+        """Calculate importance score based on content indicators"""
+        sent_lower = sent.lower()
+        score = 0.0
+
+        # Check for key indicator words
+        for indicator in key_indicators:
+            if indicator in sent_lower:
+                score += 0.5
+
+        # Bonus for sentences with specific patterns
+        if re.search(r'\b(this\s+(paper|document|study|research|report|article))', sent_lower):
+            score += 1.0
+        if re.search(r'\b(we\s+(present|propose|introduce|describe|analyze|demonstrate))', sent_lower):
+            score += 0.8
+        if re.search(r'\b(results?\s+(show|indicate|suggest|demonstrate|reveal))', sent_lower):
+            score += 0.7
+
+        return score
+
+    # Filter and score sentences
+    quality_sentences = []
+    importance_scores = []
+
+    for sent in sentences:
+        if is_quality_sentence(sent):
+            quality_sentences.append(sent.strip())
+            importance_scores.append(get_sentence_importance_score(sent))
+
+    if not quality_sentences:
+        # Relaxed criteria fallback
+        quality_sentences = [s.strip() for s in sentences if s.strip() and 5 <= len(s.split()) <= 40]
+        importance_scores = [0.0] * len(quality_sentences)
+
+    if not quality_sentences:
+        return "Unable to generate summary - no valid sentences found in document."
+
+    # If document is very short, return it all
+    if len(quality_sentences) <= max_sentences:
+        return " ".join(quality_sentences[:max_sentences])
+
+    try:
+        model = get_embedding_model()
+
+        # Generate embeddings
+        sentence_embeddings = model.encode(quality_sentences, convert_to_numpy=True)
+        doc_embedding = model.encode([content], convert_to_numpy=True)[0]
+
+        # Calculate comprehensive scores
+        sentence_scores = []
+        for i, sent_emb in enumerate(sentence_embeddings):
+            # Semantic similarity to overall document
+            doc_sim = np.dot(sent_emb, doc_embedding) / (
+                np.linalg.norm(sent_emb) * np.linalg.norm(doc_embedding)
+            )
+
+            # Position weight - heavily favor beginning, moderately favor middle
+            position_ratio = i / len(quality_sentences)
+            if position_ratio < 0.15:  # First 15% - intro/abstract
+                position_weight = 1.5
+            elif position_ratio < 0.35:  # Next 20% - main concepts
+                position_weight = 1.3
+            elif position_ratio > 0.85:  # Last 15% - conclusions
+                position_weight = 1.1
+            else:  # Middle sections
+                position_weight = 0.9
+
+            # Length optimization - prefer 15-30 word sentences
+            word_count = len(quality_sentences[i].split())
+            if 15 <= word_count <= 30:
+                length_weight = 1.2
+            elif 10 <= word_count <= 35:
+                length_weight = 1.0
+            else:
+                length_weight = 0.8
+
+            # Content importance score
+            importance_weight = 1.0 + importance_scores[i]
+
+            # Diversity bonus - calculate similarity to already selected sentences
+            diversity_penalty = 0.0
+
+            # Combined score with all factors
+            score = doc_sim * position_weight * length_weight * importance_weight
+            sentence_scores.append((i, score, quality_sentences[i]))
+
+        # Select top sentences with diversity consideration
+        selected_sentences = []
+        remaining_scores = sorted(sentence_scores, key=lambda x: x[1], reverse=True)
+
+        while len(selected_sentences) < max_sentences and remaining_scores:
+            # Take the highest scored sentence
+            best = remaining_scores.pop(0)
+            selected_sentences.append(best)
+
+            # Apply diversity penalty to remaining sentences
+            if len(selected_sentences) < max_sentences and remaining_scores:
+                best_embedding = sentence_embeddings[best[0]]
+                new_remaining = []
+                for item in remaining_scores:
+                    item_embedding = sentence_embeddings[item[0]]
+                    similarity = np.dot(best_embedding, item_embedding) / (
+                        np.linalg.norm(best_embedding) * np.linalg.norm(item_embedding)
+                    )
+                    # Reduce score if too similar to already selected sentence
+                    diversity_penalty = similarity * 0.3
+                    new_score = item[1] * (1 - diversity_penalty)
+                    new_remaining.append((item[0], new_score, item[2]))
+                remaining_scores = sorted(new_remaining, key=lambda x: x[1], reverse=True)
+
+        # Re-order by original position for coherence
+        selected_sentences.sort(key=lambda x: x[0])
+
+        # Create final summary
+        summary = " ".join([sent[2] for sent in selected_sentences])
+
+        # Ensure summary isn't too long (max ~500 chars for conciseness)
+        if len(summary) > 600:
+            # If too long, reduce to 3 sentences
+            if len(selected_sentences) > 3:
+                selected_sentences = selected_sentences[:3]
+                summary = " ".join([sent[2] for sent in selected_sentences])
+
+        return summary
+
+    except Exception as e:
+        # Fallback to importance-based selection
+        print(f"[WARNING] Summary generation failed: {e}")
+        # Sort by importance scores and take top sentences
+        scored = list(zip(quality_sentences, importance_scores))
+        scored.sort(key=lambda x: x[1], reverse=True)
+        fallback = [s[0] for s in scored[:max_sentences]]
+        return " ".join(fallback)

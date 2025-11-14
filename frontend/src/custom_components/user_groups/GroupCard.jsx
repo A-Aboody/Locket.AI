@@ -66,19 +66,22 @@ const GroupCard = ({
   };
 
   return (
-    <Box 
+    <Box
       borderBottom="1px"
       borderColor="primary.600"
-      bg={isExpanded ? 'primary.800' : 'transparent'}
-      transition="all 0.2s"
+      bg="transparent"
+      transition="all 0.15s"
+      _last={{ borderBottom: 'none' }}
     >
       {/* Group Header */}
       <Box
-        p={5}
+        px={8}
+        py={4}
         cursor="pointer"
         onClick={() => !isEditing && setIsExpanded(!isExpanded)}
-        _hover={{ bg: 'primary.800' }}
-        transition="all 0.2s"
+        _hover={{ bg: 'whiteAlpha.50' }}
+        transition="all 0.15s"
+        position="relative"
       >
         {isEditing ? (
           <VStack 
@@ -125,57 +128,56 @@ const GroupCard = ({
             />
           </VStack>
         ) : (
-          <HStack justify="space-between">
-            <HStack spacing={4} flex={1}>
-              <Box 
-                p={3} 
-                bg="accent.500" 
-                rounded="lg"
-                display="flex"
-                alignItems="center"
-                justifyContent="center"
-              >
-                <FiUsers size={20} color="white" />
-              </Box>
-              <VStack align="start" spacing={1} flex={1}>
-                <HStack>
-                  <Text color="white" fontWeight="semibold" fontSize="lg">
-                    {group.name}
-                  </Text>
-                  {isOwner && (
-                    <Badge colorScheme="accent" fontSize="xs">
-                      Owner
-                    </Badge>
-                  )}
-                </HStack>
-                {group.description && (
-                  <Text color="gray.400" fontSize="sm" noOfLines={1}>
-                    {group.description}
-                  </Text>
+          <HStack justify="space-between" align="center">
+            <VStack align="start" spacing={1} flex={1}>
+              <HStack spacing={2.5}>
+                <Text color="white" fontWeight="600" fontSize="md" letterSpacing="-0.01em">
+                  {group.name}
+                </Text>
+                {isOwner && (
+                  <Badge
+                    bg="primary.700"
+                    color="gray.400"
+                    fontSize="xs"
+                    px={1.5}
+                    py={0.5}
+                    rounded="sm"
+                    fontWeight="500"
+                  >
+                    Owner
+                  </Badge>
                 )}
-                <HStack spacing={4} fontSize="xs" color="gray.500">
-                  <HStack spacing={1}>
-                    <FiUser size={12} />
-                    <Text>{stats?.member_count || group.members?.length || 0} members</Text>
-                  </HStack>
-                  <HStack spacing={1}>
-                    <FiFile size={12} />
-                    <Text>{stats?.document_count || 0} documents</Text>
-                  </HStack>
+              </HStack>
+              {group.description && (
+                <Text color="gray.500" fontSize="sm" noOfLines={1}>
+                  {group.description}
+                </Text>
+              )}
+              <HStack spacing={3} fontSize="xs" color="gray.500" mt={0.5}>
+                <HStack spacing={1}>
+                  <FiUser size={12} />
+                  <Text>{stats?.member_count || group.members?.length || 0} members</Text>
                 </HStack>
-              </VStack>
-            </HStack>
+                <Text color="gray.600">•</Text>
+                <HStack spacing={1}>
+                  <FiFile size={12} />
+                  <Text>{stats?.document_count || 0} documents</Text>
+                </HStack>
+              </HStack>
+            </VStack>
             
-            <HStack spacing={2} onClick={(e) => e.stopPropagation()}>
+            <HStack spacing={0.5} onClick={(e) => e.stopPropagation()}>
               {isOwner && (
                 <>
-                  <Tooltip label="Edit group">
+                  <Tooltip label="Edit" placement="top">
                     <IconButton
                       icon={<FiEdit />}
                       size="sm"
                       variant="ghost"
-                      color="gray.400"
-                      _hover={{ color: 'accent.400', bg: 'primary.700' }}
+                      color="gray.500"
+                      rounded="md"
+                      _hover={{ color: 'white', bg: 'primary.700' }}
+                      transition="all 0.15s"
                       onClick={(e) => {
                         e.stopPropagation();
                         setIsEditing(true);
@@ -183,13 +185,15 @@ const GroupCard = ({
                       aria-label="Edit group"
                     />
                   </Tooltip>
-                  <Tooltip label="Delete group">
+                  <Tooltip label="Delete" placement="top">
                     <IconButton
                       icon={<FiTrash2 />}
                       size="sm"
                       variant="ghost"
-                      color="gray.400"
+                      color="gray.500"
+                      rounded="md"
                       _hover={{ color: 'red.400', bg: 'primary.700' }}
+                      transition="all 0.15s"
                       onClick={(e) => {
                         e.stopPropagation();
                         onDelete(group.id, group.name);
@@ -200,13 +204,15 @@ const GroupCard = ({
                 </>
               )}
               {!isOwner && (
-                <Tooltip label="Leave group">
+                <Tooltip label="Leave" placement="top">
                   <IconButton
                     icon={<FiLogOut />}
                     size="sm"
                     variant="ghost"
-                    color="gray.400"
+                    color="gray.500"
+                    rounded="md"
                     _hover={{ color: 'orange.400', bg: 'primary.700' }}
+                    transition="all 0.15s"
                     onClick={(e) => {
                       e.stopPropagation();
                       onLeave(group.id, group.name);
@@ -219,7 +225,10 @@ const GroupCard = ({
                 icon={isExpanded ? <FiChevronUp /> : <FiChevronDown />}
                 size="sm"
                 variant="ghost"
-                color="gray.400"
+                color="gray.500"
+                rounded="md"
+                _hover={{ bg: 'primary.700' }}
+                transition="all 0.15s"
                 aria-label={isExpanded ? "Collapse" : "Expand"}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -233,12 +242,10 @@ const GroupCard = ({
 
       {/* Expanded Content */}
       <Collapse in={isExpanded} animateOpacity>
-        <Box px={5} pb={5}>
-          <Divider borderColor="primary.600" mb={4} />
-          
+        <Box px={8} pb={5} pt={1} bg="primary.800">
           {/* Members Section */}
           <Box mb={4}>
-            <Text color="gray.300" fontSize="sm" fontWeight="medium" mb={3}>
+            <Text color="gray.400" fontSize="xs" fontWeight="600" textTransform="uppercase" letterSpacing="0.05em" mb={3}>
               Members
             </Text>
             <MembersList
@@ -252,7 +259,7 @@ const GroupCard = ({
 
           {/* Add Member Section */}
           {isMember && (
-            <Box>
+            <Box mb={4}>
               {isAddingMember ? (
                 <AddMemberForm
                   groupId={group.id}
@@ -264,9 +271,16 @@ const GroupCard = ({
                 <Button
                   leftIcon={<FiUserPlus />}
                   size="sm"
-                  variant="outline"
-                  colorScheme="accent"
+                  variant="ghost"
+                  color="gray.400"
                   w="full"
+                  justifyContent="flex-start"
+                  fontWeight="500"
+                  _hover={{
+                    bg: 'primary.700',
+                    color: 'white',
+                  }}
+                  transition="all 0.15s"
                   onClick={() => setIsAddingMember(true)}
                 >
                   Add Member
@@ -276,8 +290,10 @@ const GroupCard = ({
           )}
 
           {/* Documents Section */}
-          <Box mt={6}>
-            <Divider borderColor="primary.600" mb={4} />
+          <Box pt={4} borderTop="1px" borderColor="primary.600">
+            <Text color="gray.400" fontSize="xs" fontWeight="600" textTransform="uppercase" letterSpacing="0.05em" mb={3}>
+              Documents
+            </Text>
             <GroupDocuments
               groupId={group.id}
               groupName={group.name}
