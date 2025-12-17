@@ -1,8 +1,11 @@
+# Production Docker Compose Configuration
+# Use this for deployment, demos, and production-like testing
+
 services:
   # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
-    container_name: doc-retrieval-postgres
+    container_name: doc-retrieval-postgres-prod
     restart: unless-stopped
     environment:
       POSTGRES_USER: doc_user
@@ -11,9 +14,9 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data_prod:/var/lib/postgresql/data
     networks:
-      - doc-retrieval-network
+      - doc-retrieval-network-prod
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U doc_user -d document_retrieval"]
       interval: 10s
@@ -24,21 +27,20 @@ services:
   # Ollama AI Service
   ollama:
     image: ollama/ollama:latest
-    container_name: doc-retrieval-ollama
+    container_name: doc-retrieval-ollama-prod
     restart: unless-stopped
     ports:
       - "11434:11434"
     volumes:
-      - ollama_data:/root/.ollama
+      - ollama_data_prod:/root/.ollama
     networks:
-      - doc-retrieval-network
+      - doc-retrieval-network-prod
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 60s
-    # Pull the model on startup
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -52,23 +54,22 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: doc-retrieval-backend
+    container_name: doc-retrieval-backend-prod
     restart: unless-stopped
     env_file:
       - .env.docker
     ports:
       - "8001:8001"
     volumes:
-      - ./backend:/app
-      - ./backend/uploads:/app/uploads  # Use local directory instead of named volume
-      - model_cache:/root/.cache/torch/sentence_transformers
+      - ./backend/uploads:/app/uploads
+      - model_cache_prod:/root/.cache/torch/sentence_transformers
     depends_on:
       postgres:
         condition: service_healthy
       ollama:
         condition: service_healthy
     networks:
-      - doc-retrieval-network
+      - doc-retrieval-network-prod
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
       interval: 30s
@@ -76,17 +77,35 @@ services:
       retries: 5
       start_period: 90s
 
+  # Frontend (Production build with Nginx)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: doc-retrieval-frontend-prod
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - doc-retrieval-network-prod
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
 volumes:
-  postgres_data:
-    name: doc-retrieval-postgres-data
-  uploads_data:
-    name: doc-retrieval-uploads
-  model_cache:
-    name: doc-retrieval-model-cache
-  ollama_data:
-    name: doc-retrieval-ollama-data
+  postgres_data_prod:
+    name: doc-retrieval-postgres-data-prod
+  model_cache_prod:
+    name: doc-retrieval-model-cache-prod
+  ollama_data_prod:
+    name: doc-retrieval-ollama-data-prod
 
 networks:
-  doc-retrieval-network:
-    name: doc-retrieval-network
+  doc-retrieval-network-prod:
+    name: doc-retrieval-network-prod
     driver: bridge

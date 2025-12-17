@@ -250,8 +250,43 @@ export const userGroupsAPI = {
   getGroupStats: (groupId) => api.get(`/user-groups/${groupId}/stats`),
   
   // Transfer ownership
-  transferOwnership: (groupId, newOwnerId) => 
+  transferOwnership: (groupId, newOwnerId) =>
     api.post(`/user-groups/${groupId}/transfer`, { new_owner_id: newOwnerId }),
+};
+
+// Chats API
+export const chatsAPI = {
+  // Create a new chat
+  create: (chatData = {}) => api.post('/chats', chatData),
+
+  // List all chats for current user
+  list: (params = {}) => api.get('/chats', { params }),
+
+  // Get specific chat with all messages
+  get: (chatId) => api.get(`/chats/${chatId}`),
+
+  // Send a message in a chat
+  sendMessage: (chatId, content) =>
+    api.post(`/chats/${chatId}/messages`, { content }),
+
+  // Update chat (title, archive status)
+  update: (chatId, updateData) =>
+    api.patch(`/chats/${chatId}`, updateData),
+
+  // Delete a chat
+  delete: (chatId) => api.delete(`/chats/${chatId}`),
+
+  // Archive a chat
+  archive: (chatId) =>
+    api.patch(`/chats/${chatId}`, { is_archived: true }),
+
+  // Unarchive a chat
+  unarchive: (chatId) =>
+    api.patch(`/chats/${chatId}`, { is_archived: false }),
+
+  // Rename a chat
+  rename: (chatId, title) =>
+    api.patch(`/chats/${chatId}`, { title }),
 };
 
 // Users API for search and management
@@ -476,13 +511,13 @@ export const apiUtils = {
     const diffMins = Math.floor(diffMs / 60000);
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
-    
+
     if (diffMins < 1) return 'Just now';
     if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
     if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
     if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-    
-    return this.formatDate(dateString);
+
+    return apiUtils.formatDate(dateString);
   },
   
   // Check if user is authenticated and verified

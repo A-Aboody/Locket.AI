@@ -17,6 +17,7 @@ const NavTabs = () => {
     if (path === '/dashboard' || path === '/') return 0;
     if (path === '/documents') return 1;
     if (path === '/my-uploads') return 2;
+    if (path.startsWith('/chat')) return 3;
     return 0;
   };
 
@@ -33,6 +34,9 @@ const NavTabs = () => {
         break;
       case 2:
         navigate('/my-uploads');
+        break;
+      case 3:
+        navigate('/chat');
         break;
       default:
         navigate('/dashboard');
@@ -133,6 +137,22 @@ const NavTabs = () => {
             }}
           >
             My Uploads
+          </Tab>
+          <Tab
+            color="gray.400"
+            fontWeight="medium"
+            fontSize="sm"
+            py={3}
+            _selected={{
+              color: 'accent.500',
+            }}
+            sx={{
+              '&[data-selected]': {
+                fontWeight: 'semibold',
+              }
+            }}
+          >
+            Chat
           </Tab>
         </TabList>
       </Tabs>
