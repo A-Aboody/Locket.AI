@@ -74,7 +74,7 @@ class Config:
     print(f"[CONFIG] Max upload size: {MAX_UPLOAD_SIZE_MB} MB")
     print(f"[CONFIG] Upload directory: {UPLOAD_DIR}")
     print(f"[CONFIG] Allowed extensions: {ALLOWED_EXTENSIONS}")
-    
+
     # Create upload directory if it doesn't exist
     @classmethod
     def ensure_upload_dir(cls):

@@ -6,6 +6,7 @@ Database configuration and session management
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
+from fastapi import HTTPException
 from dotenv import load_dotenv
 import os
 from contextlib import contextmanager
@@ -108,8 +109,13 @@ def get_db() -> Session:
     db = SessionLocal()
     try:
         yield db
+    except HTTPException:
+        # Don't treat HTTP exceptions as database errors - just re-raise them
+        raise
     except Exception as e:
+        import traceback
         print(f"[DB ERROR] Session error: {e}")
+        print(f"[DB ERROR] Traceback: {traceback.format_exc()}")
         db.rollback()
         raise
     finally:

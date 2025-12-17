@@ -599,3 +599,92 @@ class UsageStatistics(BaseModel):
     api_calls: int
     period_start: datetime
     period_end: datetime
+
+
+# Chat Schemas
+
+class ChatCreate(BaseModel):
+    """Schema for creating a new chat"""
+    title: Optional[str] = Field(None, max_length=255, description="Optional chat title")
+
+
+class ChatMessageCreate(BaseModel):
+    """Schema for sending a chat message"""
+    content: str = Field(..., min_length=1, max_length=10000, description="Message content")
+
+    @validator('content')
+    def content_not_empty(cls, v):
+        """Validate message content is not empty"""
+        if not v.strip():
+            raise ValueError('Message content cannot be empty')
+        return v.strip()
+
+
+class ChatCitationResponse(BaseModel):
+    """Schema for chat citation response"""
+    id: int
+    document_id: int
+    document_filename: str
+    relevance_score: Optional[int] = None
+    excerpt: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ChatMessageResponse(BaseModel):
+    """Schema for chat message response"""
+    id: int
+    chat_id: int
+    role: str  # 'user' or 'assistant'
+    content: str
+    tokens_used: Optional[int] = None
+    created_at: datetime
+    citations: List[ChatCitationResponse] = []
+
+    class Config:
+        from_attributes = True
+
+
+class ChatResponse(BaseModel):
+    """Schema for chat response"""
+    id: int
+    user_id: int
+    title: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    is_archived: bool
+    messages: List[ChatMessageResponse] = []
+    message_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class ChatListItemResponse(BaseModel):
+    """Schema for chat list item (without full messages)"""
+    id: int
+    user_id: int
+    title: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    is_archived: bool
+    message_count: int
+    last_message_preview: Optional[str] = None
+    last_message_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ChatListResponse(BaseModel):
+    """Schema for chat list response"""
+    chats: List[ChatListItemResponse]
+    total_count: int
+
+
+class ChatUpdateRequest(BaseModel):
+    """Schema for updating a chat"""
+    title: Optional[str] = Field(None, max_length=255)
+    is_archived: Optional[bool] = None

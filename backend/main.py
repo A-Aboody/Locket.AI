@@ -23,14 +23,28 @@ import crud
 import auth
 import document_processing
 import search_service
+import chat_service
 from dependencies import get_current_user, require_admin, require_verified_email, require_admin_or_verified_email
-from database_models import User, UserRole, UserStatus, Document
+from database_models import User, UserRole, UserStatus, Document, Chat, ChatMessage, ChatCitation
 from email_service import email_service
 from verification_service import verification_service
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging with UTF-8 encoding for Windows
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger(__name__)
+
+# Ensure UTF-8 encoding for logging on Windows
+import sys
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 # Create FastAPI app
 app = FastAPI(
@@ -696,7 +710,10 @@ async def upload_document(
     file_extension = document_processing.get_file_extension(file.filename)
     unique_filename = f"{uuid.uuid4()}{file_extension}"
     file_path = os.path.join(config.UPLOAD_DIR, unique_filename)
-    
+
+    # Normalize path for database storage (always use forward slashes for Docker compatibility)
+    db_file_path = file_path.replace('\\', '/')
+
     # Save file to disk
     try:
         with open(file_path, "wb") as f:
@@ -742,7 +759,7 @@ async def upload_document(
     try:
         document = Document(
             filename=file.filename,
-            file_path=file_path,
+            file_path=db_file_path,  # Use normalized path with forward slashes
             file_type=file.content_type or file_extension,
             file_size=file_size,
             content=content,
@@ -1714,6 +1731,471 @@ def format_user_group_response(group):
         "members": formatted_members,
         "creator_username": group.creator.username if group.creator else None
     }
+
+
+# ==================== CHAT ENDPOINTS ====================
+
+@app.post("/api/chats", response_model=schemas.ChatResponse, status_code=status.HTTP_201_CREATED)
+def create_chat(
+    chat_data: schemas.ChatCreate,
+    current_user: User = Depends(require_verified_email),
+    db: Session = Depends(get_db)
+):
+    """
+    Create a new chat session
+
+    Requires email verification
+    """
+    try:
+        # Create new chat
+        new_chat = Chat(
+            user_id=current_user.id,
+            title=chat_data.title,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+            is_archived=False
+        )
+
+        db.add(new_chat)
+        db.commit()
+        db.refresh(new_chat)
+
+        logger.info(f"Chat created: ID={new_chat.id}, User={current_user.username}")
+
+        return {
+            "id": new_chat.id,
+            "user_id": new_chat.user_id,
+            "title": new_chat.title,
+            "created_at": new_chat.created_at.isoformat() if new_chat.created_at else None,
+            "updated_at": new_chat.updated_at.isoformat() if new_chat.updated_at else None,
+            "is_archived": new_chat.is_archived,
+            "messages": [],
+            "message_count": 0
+        }
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error creating chat: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create chat: {str(e)}"
+        )
+
+
+@app.get("/api/chats", response_model=schemas.ChatListResponse)
+def list_chats(
+    include_archived: bool = False,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: User = Depends(require_verified_email),
+    db: Session = Depends(get_db)
+):
+    """
+    List all chats for the current user
+
+    Query parameters:
+    - include_archived: Include archived chats (default: False)
+    - limit: Maximum number of chats to return (default: 50)
+    - offset: Number of chats to skip (default: 0)
+    """
+    try:
+        # Build query
+        query = db.query(Chat).filter(Chat.user_id == current_user.id)
+
+        if not include_archived:
+            query = query.filter(Chat.is_archived == False)
+
+        # Get total count
+        total_count = query.count()
+
+        # Get chats with pagination
+        chats = query.order_by(Chat.updated_at.desc()).offset(offset).limit(limit).all()
+
+        # Format response
+        chat_items = []
+        for chat in chats:
+            # Get message count
+            message_count = db.query(ChatMessage).filter(ChatMessage.chat_id == chat.id).count()
+
+            # Get last message
+            last_message = db.query(ChatMessage).filter(
+                ChatMessage.chat_id == chat.id
+            ).order_by(ChatMessage.created_at.desc()).first()
+
+            last_message_preview = None
+            last_message_at = None
+            if last_message:
+                # Truncate message for preview
+                last_message_preview = last_message.content[:100] + "..." if len(last_message.content) > 100 else last_message.content
+                last_message_at = last_message.created_at
+
+            chat_items.append({
+                "id": chat.id,
+                "user_id": chat.user_id,
+                "title": chat.title,
+                "created_at": chat.created_at.isoformat() if chat.created_at else None,
+                "updated_at": chat.updated_at.isoformat() if chat.updated_at else None,
+                "is_archived": chat.is_archived,
+                "message_count": message_count,
+                "last_message_preview": last_message_preview,
+                "last_message_at": last_message_at.isoformat() if last_message_at else None
+            })
+
+        return {
+            "chats": chat_items,
+            "total_count": total_count
+        }
+
+    except Exception as e:
+        logger.error(f"Error listing chats: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list chats: {str(e)}"
+        )
+
+
+@app.get("/api/chats/{chat_id}", response_model=schemas.ChatResponse)
+def get_chat(
+    chat_id: int,
+    current_user: User = Depends(require_verified_email),
+    db: Session = Depends(get_db)
+):
+    """
+    Get a specific chat with all messages and citations
+    """
+    try:
+        # Get chat and verify ownership
+        chat = db.query(Chat).filter(
+            Chat.id == chat_id,
+            Chat.user_id == current_user.id
+        ).first()
+
+        if not chat:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Chat not found"
+            )
+
+        # Get all messages with citations
+        messages = db.query(ChatMessage).filter(
+            ChatMessage.chat_id == chat_id
+        ).order_by(ChatMessage.created_at.asc()).all()
+
+        # Format messages with citations
+        formatted_messages = []
+        for message in messages:
+            # Get citations for this message
+            citations = db.query(ChatCitation).filter(
+                ChatCitation.message_id == message.id
+            ).all()
+
+            # Format citations
+            formatted_citations = []
+            for citation in citations:
+                doc = db.query(Document).filter(Document.id == citation.document_id).first()
+                if doc:
+                    formatted_citations.append({
+                        "id": citation.id,
+                        "document_id": citation.document_id,
+                        "document_filename": doc.filename,
+                        "relevance_score": citation.relevance_score,
+                        "excerpt": citation.excerpt,
+                        "created_at": citation.created_at.isoformat() if citation.created_at else None
+                    })
+
+            formatted_messages.append({
+                "id": message.id,
+                "chat_id": message.chat_id,
+                "role": message.role,
+                "content": message.content,
+                "created_at": message.created_at.isoformat() if message.created_at else None,
+                "citations": formatted_citations
+            })
+
+        return {
+            "id": chat.id,
+            "user_id": chat.user_id,
+            "title": chat.title,
+            "created_at": chat.created_at.isoformat() if chat.created_at else None,
+            "updated_at": chat.updated_at.isoformat() if chat.updated_at else None,
+            "is_archived": chat.is_archived,
+            "messages": formatted_messages,
+            "message_count": len(formatted_messages)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting chat: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get chat: {str(e)}"
+        )
+
+
+@app.post("/api/chats/{chat_id}/messages", response_model=schemas.ChatMessageResponse)
+def send_message(
+    chat_id: int,
+    message_data: schemas.ChatMessageCreate,
+    current_user: User = Depends(require_verified_email),
+    db: Session = Depends(get_db)
+):
+    """
+    Send a message in a chat and get AI response with document citations
+
+    This endpoint:
+    1. Saves the user's message
+    2. Retrieves relevant documents based on the question
+    3. Generates an AI response using document content
+    4. Saves the AI response with citations
+    5. Returns the AI response
+    """
+    try:
+        # Get chat and verify ownership
+        chat = db.query(Chat).filter(
+            Chat.id == chat_id,
+            Chat.user_id == current_user.id
+        ).first()
+
+        if not chat:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Chat not found"
+            )
+
+        # Save user message
+        user_message = ChatMessage(
+            chat_id=chat_id,
+            role="user",
+            content=message_data.content,
+            created_at=datetime.now(timezone.utc)
+        )
+        db.add(user_message)
+        db.commit()
+        db.refresh(user_message)
+
+        # Get conversation history for context
+        previous_messages = db.query(ChatMessage).filter(
+            ChatMessage.chat_id == chat_id,
+            ChatMessage.id < user_message.id
+        ).order_by(ChatMessage.created_at.asc()).all()
+
+        conversation_history = [
+            {"role": msg.role, "content": msg.content}
+            for msg in previous_messages
+        ]
+
+        # Always try to get relevant documents
+        relevant_docs = chat_service.get_relevant_documents(
+            db=db,
+            user_id=current_user.id,
+            query=message_data.content,
+            conversation_history=conversation_history,
+            limit=5
+        )
+
+        # Import ai_service for AI-powered responses
+        try:
+            import ai_service
+            # Try to use AI service (Ollama) for intelligent responses
+            ai_response_content = ai_service.generate_chat_response(
+                query=message_data.content,
+                relevant_docs=relevant_docs,
+                conversation_history=conversation_history
+            )
+
+            # If AI service returns None (Ollama not available), fall back to chat_service
+            if ai_response_content is None:
+                ai_response_content = chat_service.generate_chat_response(
+                    query=message_data.content,
+                    relevant_docs=relevant_docs,
+                    conversation_history=conversation_history
+                )
+        except Exception as e:
+            logger.warning(f"AI service failed, using fallback: {str(e)}")
+            # Fallback to chat_service if ai_service fails
+            ai_response_content = chat_service.generate_chat_response(
+                query=message_data.content,
+                relevant_docs=relevant_docs,
+                conversation_history=conversation_history
+            )
+
+        # Save AI response
+        ai_message = ChatMessage(
+            chat_id=chat_id,
+            role="assistant",
+            content=ai_response_content,
+            created_at=datetime.now(timezone.utc)
+        )
+        db.add(ai_message)
+        db.commit()
+        db.refresh(ai_message)
+
+        # Create citations only if the query actually needs document context
+        # Don't cite for greetings, casual conversation, or questions about Locket
+        citations = []
+        has_relevant_docs = relevant_docs and len(relevant_docs) > 0
+        if has_relevant_docs and ai_service.should_cite_sources(message_data.content, has_relevant_docs):
+            citations = chat_service.create_chat_citations(
+                db=db,
+                chat_id=chat_id,
+                message_id=ai_message.id,
+                relevant_docs=relevant_docs
+            )
+
+        # Auto-generate title from first message if not set
+        if not chat.title and len(conversation_history) == 0:
+            chat.title = chat_service.generate_chat_title(message_data.content)
+
+        # Update chat timestamp
+        chat.updated_at = datetime.now(timezone.utc)
+        db.commit()
+
+        # Format citations for response
+        formatted_citations = []
+        for citation in citations:
+            doc = db.query(Document).filter(Document.id == citation.document_id).first()
+            if doc:
+                formatted_citations.append({
+                    "id": citation.id,
+                    "document_id": citation.document_id,
+                    "document_filename": doc.filename,
+                    "relevance_score": citation.relevance_score,
+                    "excerpt": citation.excerpt,
+                    "created_at": citation.created_at.isoformat() if citation.created_at else None
+                })
+
+        logger.info(f"Message sent in chat {chat_id}: {len(relevant_docs)} documents cited")
+
+        # Ensure content is properly encoded for Windows
+        content_safe = ai_message.content
+        if content_safe:
+            try:
+                # Encode and decode to ensure it's valid UTF-8
+                content_safe = content_safe.encode('utf-8', errors='replace').decode('utf-8')
+            except Exception:
+                pass  # If encoding fails, use original
+
+        return {
+            "id": ai_message.id,
+            "chat_id": ai_message.chat_id,
+            "role": ai_message.role,
+            "content": content_safe,
+            "created_at": ai_message.created_at.isoformat() if ai_message.created_at else None,
+            "citations": formatted_citations
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error sending message: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to send message: {str(e)}"
+        )
+
+
+@app.patch("/api/chats/{chat_id}", response_model=schemas.ChatResponse)
+def update_chat(
+    chat_id: int,
+    update_data: schemas.ChatUpdateRequest,
+    current_user: User = Depends(require_verified_email),
+    db: Session = Depends(get_db)
+):
+    """
+    Update chat properties (title, archive status)
+    """
+    try:
+        # Get chat and verify ownership
+        chat = db.query(Chat).filter(
+            Chat.id == chat_id,
+            Chat.user_id == current_user.id
+        ).first()
+
+        if not chat:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Chat not found"
+            )
+
+        # Update fields
+        if update_data.title is not None:
+            chat.title = update_data.title
+
+        if update_data.is_archived is not None:
+            chat.is_archived = update_data.is_archived
+
+        chat.updated_at = datetime.now(timezone.utc)
+
+        db.commit()
+        db.refresh(chat)
+
+        # Get message count
+        message_count = db.query(ChatMessage).filter(ChatMessage.chat_id == chat.id).count()
+
+        return {
+            "id": chat.id,
+            "user_id": chat.user_id,
+            "title": chat.title,
+            "created_at": chat.created_at.isoformat() if chat.created_at else None,
+            "updated_at": chat.updated_at.isoformat() if chat.updated_at else None,
+            "is_archived": chat.is_archived,
+            "messages": [],
+            "message_count": message_count
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating chat: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update chat: {str(e)}"
+        )
+
+
+@app.delete("/api/chats/{chat_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_chat(
+    chat_id: int,
+    current_user: User = Depends(require_verified_email),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a chat and all its messages
+    """
+    try:
+        # Get chat and verify ownership
+        chat = db.query(Chat).filter(
+            Chat.id == chat_id,
+            Chat.user_id == current_user.id
+        ).first()
+
+        if not chat:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Chat not found"
+            )
+
+        # Delete chat (cascade will delete messages and citations)
+        db.delete(chat)
+        db.commit()
+
+        logger.info(f"Chat deleted: ID={chat_id}, User={current_user.username}")
+
+        return None
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting chat: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete chat: {str(e)}"
+        )
 
 
 # Global exception handler

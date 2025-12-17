@@ -7,6 +7,7 @@ import AllDocumentsPage from './pages/AllDocumentsPage';
 import MyUploadsPage from './pages/MyUploadsPage';
 import UploadPage from './pages/UploadPage';
 import SettingsPage from './pages/SettingsPage';
+import ChatPage from './pages/ChatPage';
 import AuthPage from './pages/AuthPage';
 import NotFoundPage from './pages/NotFoundPage';
 
@@ -43,6 +44,22 @@ function App() {
         element={
           <ProtectedRoute>
             <UploadPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/chat"
+        element={
+          <ProtectedRoute>
+            <ChatPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/chat/:chatId"
+        element={
+          <ProtectedRoute>
+            <ChatPage />
           </ProtectedRoute>
         }
       />

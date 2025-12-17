@@ -220,3 +220,87 @@ class Document(Base):
             return f'Group ({group_name})'
         else:
             return 'Unknown'
+
+
+class Chat(Base):
+    """Chat session model for storing conversations"""
+    __tablename__ = "chats"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    title = Column(String(255), nullable=True)
+    is_archived = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    # Relationships
+    user = relationship("User")
+    messages = relationship(
+        "ChatMessage",
+        back_populates="chat",
+        cascade="all, delete-orphan",
+        order_by="ChatMessage.created_at"
+    )
+    citations = relationship(
+        "ChatCitation",
+        back_populates="chat",
+        cascade="all, delete-orphan"
+    )
+
+    def __repr__(self):
+        return f"<Chat(id={self.id}, user_id={self.user_id}, title='{self.title}')>"
+
+
+class ChatMessage(Base):
+    """Chat message model for storing individual messages in a chat"""
+    __tablename__ = "chat_messages"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    chat_id = Column(Integer, ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
+    role = Column(String(20), nullable=False)  # 'user' or 'assistant'
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+
+    # Relationships
+    chat = relationship("Chat", back_populates="messages")
+    citations = relationship(
+        "ChatCitation",
+        back_populates="message",
+        cascade="all, delete-orphan"
+    )
+
+    # Indexes
+    __table_args__ = (
+        Index('ix_chat_messages_chat_id', 'chat_id'),
+    )
+
+    def __repr__(self):
+        return f"<ChatMessage(id={self.id}, chat_id={self.chat_id}, role='{self.role}')>"
+
+
+class ChatCitation(Base):
+    """Chat citation model for linking documents to chat messages"""
+    __tablename__ = "chat_citations"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    chat_id = Column(Integer, ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
+    message_id = Column(Integer, ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False)
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    relevance_score = Column(Integer, nullable=True)  # 0-100
+    excerpt = Column(Text, nullable=True)  # Relevant excerpt from document
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    # Relationships
+    chat = relationship("Chat", back_populates="citations")
+    message = relationship("ChatMessage", back_populates="citations")
+    document = relationship("Document")
+
+    # Indexes
+    __table_args__ = (
+        Index('ix_chat_citations_chat_id', 'chat_id'),
+        Index('ix_chat_citations_message_id', 'message_id'),
+        Index('ix_chat_citations_document_id', 'document_id'),
+    )
+
+    def __repr__(self):
+        return f"<ChatCitation(id={self.id}, message_id={self.message_id}, document_id={self.document_id})>"
