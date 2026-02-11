@@ -21,11 +21,11 @@ const UploadButton = ({
   return (
     <Box>
       <HStack mb={3} spacing={2}>
-        <Box 
-          w={6} 
-          h={6} 
-          rounded="full" 
-          bg={uploading || isUploadDisabled ? 'primary.700' : 'primary.600'}
+        <Box
+          w={6}
+          h={6}
+          rounded="full"
+          bg={uploading || isUploadDisabled ? 'primary.700' : 'accent.500'}
           display="flex"
           alignItems="center"
           justifyContent="center"
@@ -33,7 +33,7 @@ const UploadButton = ({
           fontWeight="bold"
           color="white"
         >
-          3
+          <FiUpload size={14} />
         </Box>
         <Text color="gray.300" fontWeight="medium">
           Upload

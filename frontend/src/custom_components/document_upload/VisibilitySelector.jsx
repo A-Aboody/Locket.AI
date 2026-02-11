@@ -10,14 +10,20 @@ import {
   Box,
 } from '@chakra-ui/react';
 import { FiEyeOff, FiGlobe, FiUsers, FiCheck } from 'react-icons/fi';
+import { isOrganizationMode } from '../../utils/modeUtils';
 
-const VisibilitySelector = ({ 
-  visibility, 
-  selectedGroup, 
-  uploading, 
+const VisibilitySelector = ({
+  visibility,
+  selectedGroup,
+  uploading,
   onVisibilityChange,
-  onGroupSelect 
+  onGroupSelect,
+  currentUser
 }) => {
+  // Check if in organization mode (not just if user has organization_id)
+  const showGroupOption = isOrganizationMode();
+  const hasOrganization = !!currentUser?.organization_id;
+
   const visibilityOptions = [
     {
       value: 'private',
@@ -31,26 +37,32 @@ const VisibilitySelector = ({
       icon: FiGlobe,
       color: 'green',
       title: 'Public',
-      description: 'All users can access this document',
+      description: hasOrganization
+        ? `All members in ${currentUser.organization_name || 'your organization'} can access this document`
+        : 'All users can access this document',
     },
-    {
+  ];
+
+  // Only show group option if in organization mode
+  if (showGroupOption) {
+    visibilityOptions.push({
       value: 'group',
       icon: FiUsers,
       color: 'accent',
       title: 'Group',
-      description: selectedGroup 
+      description: selectedGroup
         ? `Shared with ${selectedGroup.name}`
         : 'Share with specific group members',
-    },
-  ];
+    });
+  }
 
   return (
     <Box>
       <HStack mb={3} spacing={2}>
-        <Box 
-          w={6} 
-          h={6} 
-          rounded="full" 
+        <Box
+          w={6}
+          h={6}
+          rounded="full"
           bg={visibility ? 'accent.500' : 'primary.700'}
           display="flex"
           alignItems="center"
@@ -60,7 +72,7 @@ const VisibilitySelector = ({
           color="white"
           transition="all 0.3s"
         >
-          {visibility ? <FiCheck size={14} /> : '2'}
+          {visibility ? <FiCheck size={14} /> : <FiGlobe size={14} />}
         </Box>
         <Text color="gray.300" fontWeight="medium">
           Choose Visibility

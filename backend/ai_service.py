@@ -1,6 +1,6 @@
 # backend/ai_service.py
 """
-AI Service using Ollama for local LLM inference
+AI Service - Unified interface for AI providers (Ollama or OpenRouter)
 Provides intelligent chat responses and document Q&A
 """
 
@@ -8,6 +8,7 @@ import ollama
 import os
 from typing import List, Dict, Optional, Tuple
 import database_models as models
+from config import config
 
 
 # Default model - can be changed based on what's installed
@@ -39,14 +40,14 @@ def get_available_models() -> List[str]:
         return []
 
 
-def generate_chat_response(
+def _generate_chat_response_ollama(
     query: str,
     relevant_docs: List[Tuple[models.Document, float, str]],
     conversation_history: Optional[List[Dict[str, str]]] = None,
     model: str = DEFAULT_MODEL
 ) -> Optional[str]:
     """
-    Generate an intelligent chat response using Ollama
+    Generate an intelligent chat response using Ollama (internal function)
 
     Args:
         query: User's question
@@ -60,23 +61,28 @@ def generate_chat_response(
     if not is_ollama_available():
         return None
 
-    # Build the system prompt
-    system_prompt = """You are Locket, a helpful AI assistant who helps users understand their uploaded documents.
+    # Build the system prompt - clear and direct
+    system_prompt = """You are Locket, a helpful AI assistant for document management.
 
-Your job is to ANSWER questions intelligently. Key guidelines:
+CRITICAL RULES:
+1. If I provide documents with the question - USE THEM to answer. Reference the document name in your response.
+2. ONLY add the warning "⚠️ Note: This information was not found in your uploaded documents." if:
+   - I provide NO documents, OR
+   - The provided documents don't contain relevant information to answer the question
+3. If documents ARE provided and relevant - DO NOT add the warning. Just answer using the documents.
+4. For greetings (hi, hello) - respond naturally without mentioning documents.
 
-1. ANSWER the question - Use the document information to formulate a complete, natural answer in your own words
-2. Be conversational - Talk like a helpful assistant, not a search engine
-3. For casual chat (greetings, "what's up", "thanks") - Respond naturally without mentioning documents
-4. When asked about a specific document - Provide a clear summary of what's in it based on the content provided
-5. When documents are irrelevant - If the documents don't relate to the question, honestly say you don't have relevant information
-6. Be intelligent - If a user asks "tell me about document X" or "what's in the econ essay", actually summarize the document content
-7. Be concise but complete - Give full answers, not fragments
+Be direct and helpful. Always check if documents are provided before deciding whether to add the warning."""
 
-Remember: You KNOW what's in the documents when they're provided to you. Don't say you're confused or ask what's in them - just read and summarize the content."""
-
-    # Determine if this needs document context with lower threshold for better matching
-    has_good_docs = relevant_docs and relevant_docs[0][1] > 0.25  # Lower threshold for better recall
+    # Check if this is a greeting or casual conversation
+    query_lower = query.lower().strip()
+    casual_phrases = [
+        'hi', 'hello', 'hey', 'sup', 'yo', 'howdy', 'greetings',
+        'how are you', "how's it going", "what's up", 'good morning',
+        'good afternoon', 'good evening', 'thanks', 'thank you'
+    ]
+    is_casual = any(phrase == query_lower or query_lower.startswith(phrase + ' ')
+                    for phrase in casual_phrases) or len(query_lower.split()) <= 3
 
     # Build messages for the conversation
     messages = [{"role": "system", "content": system_prompt}]
@@ -89,39 +95,33 @@ Remember: You KNOW what's in the documents when they're provided to you. Don't s
                 "content": msg["content"]
             })
 
-    # Build the user message with or without document context
-    if has_good_docs:
-        # Create context from relevant documents (lowered threshold)
-        doc_context = "\n\n".join([
-            f"From '{doc.filename}':\n{excerpt[:500]}"
-            for doc, score, excerpt in relevant_docs[:3]
-            if score > 0.25
-        ])
+    # Build the user message
+    if is_casual:
+        # For casual conversation, don't include documents
+        user_message = query
+    elif relevant_docs and len(relevant_docs) > 0:
+        # Filter documents by a lower threshold to catch more matches
+        usable_docs = [
+            (doc, score, excerpt) for doc, score, excerpt in relevant_docs[:8]
+            if score > 0.15  # Very low threshold to catch all potentially relevant documents
+        ]
 
-        user_message = f"""User's Question: {query}
+        if usable_docs:
+            # Sort by relevance and format
+            doc_context = "\n\n".join([
+                f"[Document: {doc.filename} | Relevance: {int(score * 100)}%]\n{excerpt[:600]}"
+                for doc, score, excerpt in usable_docs
+            ])
 
-Information from uploaded documents:
+            user_message = f"""Question: {query}
+
+DOCUMENTS PROVIDED (use these to answer):
 {doc_context}
 
-Please ANSWER the user's question using this information. Synthesize a complete answer in your own words, don't just repeat excerpts. If the documents don't actually relate to the question, tell the user honestly."""
-
-    elif relevant_docs and relevant_docs[0][1] > 0.15:
-        # Weak matches - let AI determine if they're actually relevant
-        doc_context = "\n\n".join([
-            f"From '{doc.filename}':\n{excerpt[:500]}"
-            for doc, score, excerpt in relevant_docs[:3]
-            if score > 0.15
-        ])
-
-        user_message = f"""User's Question: {query}
-
-Potentially relevant documents (low relevance score):
-{doc_context}
-
-These documents may or may not be relevant to the question. If they help answer the question, use them. If they're not actually related to "{query}", tell the user you don't have relevant documents and suggest they upload information about this topic."""
-
+IMPORTANT: Since I'm providing documents, use them to answer the question. Only add the "not found" warning if these documents don't actually contain the answer."""
+        else:
+            user_message = query
     else:
-        # No document matches - just conversational
         user_message = query
 
     messages.append({"role": "user", "content": user_message})
@@ -133,7 +133,7 @@ These documents may or may not be relevant to the question. If they help answer 
             messages=messages,
             options={
                 "temperature": 0.7,
-                "num_predict": 500  # Max tokens
+                "num_predict": 2000  # Increased from 500 to allow complete responses
             }
         )
 
@@ -158,9 +158,9 @@ These documents may or may not be relevant to the question. If they help answer 
         return None
 
 
-def generate_chat_title(first_message: str, model: str = DEFAULT_MODEL) -> Optional[str]:
+def _generate_chat_title_ollama(first_message: str, model: str = DEFAULT_MODEL) -> Optional[str]:
     """
-    Generate a concise chat title using Ollama
+    Generate a concise chat title using Ollama (internal function)
 
     Args:
         first_message: The first user message
@@ -200,6 +200,7 @@ def generate_chat_title(first_message: str, model: str = DEFAULT_MODEL) -> Optio
 def should_cite_sources(query: str, has_relevant_docs: bool) -> bool:
     """
     Determine if response should include source citations
+    Simplified - just check if we have docs
 
     Args:
         query: User's question
@@ -208,33 +209,100 @@ def should_cite_sources(query: str, has_relevant_docs: bool) -> bool:
     Returns:
         True if sources should be cited
     """
-    if not has_relevant_docs:
-        return False
-
-    query_lower = query.lower().strip()
-
-    # Don't cite for simple greetings
-    simple_greetings = ['hi', 'hello', 'hey', 'sup', 'yo', 'howdy']
-    if query_lower in simple_greetings or len(query_lower.split()) <= 2:
-        return False
-
-    # Don't cite for conversational phrases
-    conversational = ['how are you', 'how\'s it going', 'what\'s up', 'thank you', 'thanks', 'bye', 'goodbye']
-    if any(phrase in query_lower for phrase in conversational):
-        return False
-
-    # Don't cite for questions about Locket itself
-    if any(phrase in query_lower for phrase in ['what is locket', 'who are you', 'what are you', 'what do you do']):
-        return False
-
-    # Cite for everything else that looks like a real question
-    return True
+    return has_relevant_docs
 
 
-print(f"[AI_SERVICE] Ollama AI service loaded (host: {OLLAMA_HOST})")
-if is_ollama_available():
-    available_models = get_available_models()
-    print(f"[AI_SERVICE] Available models: {', '.join(available_models) if available_models else 'None'}")
-    print(f"[AI_SERVICE] Default model: {DEFAULT_MODEL}")
+# Provider selection and unified interface functions
+def generate_chat_response(
+    query: str,
+    relevant_docs: List[Tuple[models.Document, float, str]],
+    conversation_history: Optional[List[Dict[str, str]]] = None,
+    model: str = None
+) -> Optional[str]:
+    """
+    Generate an intelligent chat response using the configured AI provider
+
+    Args:
+        query: User's question
+        relevant_docs: List of (Document, score, excerpt) tuples
+        conversation_history: Previous messages for context
+        model: Model to use (provider-specific)
+
+    Returns:
+        Generated response or None if AI is not available
+    """
+    if config.AI_PROVIDER == "openrouter":
+        try:
+            import openrouter_service
+            if openrouter_service.is_openrouter_available():
+                return openrouter_service.generate_chat_response(
+                    query=query,
+                    relevant_docs=relevant_docs,
+                    conversation_history=conversation_history,
+                    model=model
+                )
+        except Exception as e:
+            print(f"[AI_SERVICE ERROR] OpenRouter failed: {e}, falling back to Ollama")
+
+    # Fallback to Ollama
+    return _generate_chat_response_ollama(
+        query=query,
+        relevant_docs=relevant_docs,
+        conversation_history=conversation_history,
+        model=model or DEFAULT_MODEL
+    )
+
+
+def generate_chat_title(first_message: str, model: str = None) -> Optional[str]:
+    """
+    Generate a concise chat title using the configured AI provider
+
+    Args:
+        first_message: The first user message
+        model: Model to use (provider-specific)
+
+    Returns:
+        Generated title or None if AI is not available
+    """
+    if config.AI_PROVIDER == "openrouter":
+        try:
+            import openrouter_service
+            if openrouter_service.is_openrouter_available():
+                return openrouter_service.generate_chat_title(
+                    first_message=first_message,
+                    model=model
+                )
+        except Exception as e:
+            print(f"[AI_SERVICE ERROR] OpenRouter title generation failed: {e}")
+
+    # Fallback to Ollama
+    return _generate_chat_title_ollama(
+        first_message=first_message,
+        model=model or DEFAULT_MODEL
+    )
+
+
+# Initialize and log provider status
+print(f"[AI_SERVICE] AI service loaded")
+print(f"[AI_SERVICE] Configured provider: {config.AI_PROVIDER}")
+
+if config.AI_PROVIDER == "openrouter":
+    try:
+        import openrouter_service
+        if openrouter_service.is_openrouter_available():
+            print(f"[AI_SERVICE] OpenRouter is ready")
+            print(f"[AI_SERVICE] Model: {config.OPENROUTER_MODEL}")
+        else:
+            print(f"[AI_SERVICE WARNING] OpenRouter API key not configured")
+            print(f"[AI_SERVICE] Add OPENROUTER_API_KEY to your .env file")
+    except ImportError:
+        print(f"[AI_SERVICE ERROR] OpenRouter service not available")
 else:
-    print(f"[AI_SERVICE WARNING] Ollama is not running at {OLLAMA_HOST}. Install from https://ollama.com and run 'ollama pull llama3.2'")
+    if is_ollama_available():
+        available_models = get_available_models()
+        print(f"[AI_SERVICE] Ollama is ready")
+        print(f"[AI_SERVICE] Available models: {', '.join(available_models) if available_models else 'None'}")
+        print(f"[AI_SERVICE] Default model: {DEFAULT_MODEL}")
+    else:
+        print(f"[AI_SERVICE WARNING] Ollama is not running at {OLLAMA_HOST}")
+        print(f"[AI_SERVICE] Install from https://ollama.com and run 'ollama pull llama3.2'")

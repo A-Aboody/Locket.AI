@@ -13,6 +13,7 @@ const GroupsList = ({
   groups,
   groupStats,
   currentUserId,
+  currentUser,
   isLoading,
   onEdit,
   onDelete,
@@ -24,9 +25,10 @@ const GroupsList = ({
 }) => {
   const isGroupOwner = (group) => group.created_by_id === currentUserId;
   const isGroupMember = (group) => {
-    return group.members?.some(member => member.user_id === currentUserId) || 
+    return group.members?.some(member => member.user_id === currentUserId) ||
            group.created_by_id === currentUserId;
   };
+  const isOrgAdmin = currentUser?.org_role === 'admin';
 
   if (isLoading) {
     return (
@@ -86,6 +88,7 @@ const GroupsList = ({
           stats={groupStats[group.id]}
           isOwner={isGroupOwner(group)}
           isMember={isGroupMember(group)}
+          isOrgAdmin={isOrgAdmin}
           currentUserId={currentUserId}
           onEdit={onEdit}
           onDelete={onDelete}

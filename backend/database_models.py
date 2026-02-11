@@ -26,6 +26,12 @@ class UserStatus(enum.Enum):
     DELETED = "deleted"
 
 
+class OrgRole(enum.Enum):
+    """Organization role enumeration"""
+    MEMBER = "member"
+    ADMIN = "admin"
+
+
 class User(Base):
     """User model for authentication and authorization"""
     __tablename__ = "users"
@@ -43,7 +49,8 @@ class User(Base):
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     last_login = Column(DateTime, nullable=True)
     last_password_change = Column(DateTime, nullable=True)  # New field
-    
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True, index=True)
+
     # Relationships
     documents = relationship(
         "Document", 
@@ -73,7 +80,17 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan"
     )
-    
+    org_membership = relationship(
+        "OrganizationMember",
+        back_populates="user",
+        uselist=False,
+        foreign_keys="OrganizationMember.user_id"
+    )
+    organization = relationship(
+        "Organization",
+        foreign_keys=[organization_id]
+    )
+
     def __repr__(self):
         return f"<User(id={self.id}, username='{self.username}', status={self.status.value})>"
 
@@ -131,17 +148,19 @@ class PasswordResetToken(Base):
 class UserGroup(Base):
     """User Group model for collaborative document sharing"""
     __tablename__ = "user_groups"
-    
+
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     name = Column(String(100), nullable=False, index=True)
     description = Column(Text, nullable=True)
     created_by_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    
+
     # Relationships
     creator = relationship("User", back_populates="created_groups")
+    organization = relationship("Organization", back_populates="groups")
     members = relationship(
-        "UserGroupMember", 
+        "UserGroupMember",
         back_populates="group",
         cascade="all, delete-orphan"
     )
@@ -150,7 +169,10 @@ class UserGroup(Base):
         back_populates="user_group",
         cascade="all, delete-orphan"
     )
-    
+
+    # Indexes
+    __table_args__ = (Index('ix_user_groups_org_id', 'organization_id'),)
+
     def __repr__(self):
         return f"<UserGroup(id={self.id}, name='{self.name}')>"
 
@@ -175,6 +197,92 @@ class UserGroupMember(Base):
         return f"<UserGroupMember(user_id={self.user_id}, group_id={self.group_id})>"
 
 
+class Organization(Base):
+    """Organization model for collaborative workspaces"""
+    __tablename__ = "organizations"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    name = Column(String(100), nullable=False, unique=True, index=True)
+    description = Column(Text, nullable=True)
+    invite_code = Column(String(32), unique=True, nullable=False, index=True)
+    created_by_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    settings = Column(JSON, nullable=True, default=lambda: {
+        "allow_member_invites": True,
+        "default_document_visibility": "private",
+        "require_admin_approval": False
+    })
+
+    # Relationships
+    creator = relationship("User", foreign_keys=[created_by_id])
+    members = relationship("OrganizationMember", back_populates="organization", cascade="all, delete-orphan")
+    invites = relationship("OrganizationInvite", back_populates="organization", cascade="all, delete-orphan")
+    groups = relationship("UserGroup", back_populates="organization")
+    documents = relationship("Document", back_populates="organization")
+
+    def __repr__(self):
+        return f"<Organization(id={self.id}, name='{self.name}')>"
+
+
+class OrganizationMember(Base):
+    """Association table for users and organizations with role management"""
+    __tablename__ = "organization_members"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    role = Column(Enum(OrgRole), default=OrgRole.MEMBER, nullable=False)
+    joined_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    invited_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    # Relationships
+    organization = relationship("Organization", back_populates="members")
+    user = relationship("User", foreign_keys=[user_id], back_populates="org_membership")
+    invited_by = relationship("User", foreign_keys=[invited_by_id])
+
+    # Constraints
+    __table_args__ = (
+        UniqueConstraint('organization_id', 'user_id', name='_org_user_uc'),
+        Index('ix_org_members_org_id', 'organization_id'),
+        Index('ix_org_members_user_id', 'user_id'),
+    )
+
+    def __repr__(self):
+        return f"<OrganizationMember(org_id={self.organization_id}, user_id={self.user_id}, role='{self.role.value}')>"
+
+
+class OrganizationInvite(Base):
+    """Organization invitation model for managing invite codes and email invitations"""
+    __tablename__ = "organization_invites"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    invite_type = Column(String(20), nullable=False)  # 'code' or 'email'
+    email = Column(String(100), nullable=True, index=True)  # For email invitations
+    invite_code = Column(String(32), nullable=True, index=True)
+    created_by_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    expires_at = Column(DateTime, nullable=True)
+    max_uses = Column(Integer, nullable=True)
+    used_count = Column(Integer, default=0, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    # Relationships
+    organization = relationship("Organization", back_populates="invites")
+    created_by = relationship("User")
+
+    __table_args__ = (
+        Index('ix_org_invites_org_id', 'organization_id'),
+        Index('ix_org_invites_email', 'email'),
+        Index('ix_org_invites_code', 'invite_code'),
+    )
+
+    def __repr__(self):
+        return f"<OrganizationInvite(id={self.id}, org_id={self.organization_id}, type='{self.invite_type}')>"
+
+
 class Document(Base):
     """Document model for storing uploaded files and metadata"""
     __tablename__ = "documents"
@@ -189,9 +297,10 @@ class Document(Base):
     page_count = Column(Integer, default=1)
     
     # Visibility settings
-    visibility = Column(String(20), default="private", nullable=False)  # 'private', 'public', 'group'
+    visibility = Column(String(20), default="private", nullable=False)  # 'private', 'public', 'group', 'organization'
     user_group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="SET NULL"), nullable=True)
-    
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True, index=True)
+
     # AI/Search fields
     embedding = Column(JSON, nullable=True)
     content_preview = Column(String(500), nullable=True)
@@ -205,10 +314,14 @@ class Document(Base):
     # Relationships
     uploaded_by = relationship("User", back_populates="documents")
     user_group = relationship("UserGroup", back_populates="documents")
-    
+    organization = relationship("Organization", back_populates="documents")
+
+    # Indexes
+    __table_args__ = (Index('ix_documents_org_id', 'organization_id'),)
+
     def __repr__(self):
         return f"<Document(id={self.id}, filename='{self.filename}', visibility='{self.visibility}')>"
-    
+
     def get_visibility_display(self) -> str:
         """Get human-readable visibility description"""
         if self.visibility == 'private':
@@ -218,6 +331,9 @@ class Document(Base):
         elif self.visibility == 'group':
             group_name = self.user_group.name if self.user_group else 'Unknown Group'
             return f'Group ({group_name})'
+        elif self.visibility == 'organization':
+            org_name = self.organization.name if self.organization else 'Unknown Organization'
+            return f'Organization ({org_name})'
         else:
             return 'Unknown'
 

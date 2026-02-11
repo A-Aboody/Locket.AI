@@ -39,6 +39,7 @@ import {
   FiGlobe,
   FiClock,
   FiUserPlus,
+  FiPackage,
 } from 'react-icons/fi';
 import { documentsAPI } from '../utils/api';
 import { formatFileSize, formatDate } from '../utils/formatters';
@@ -143,6 +144,13 @@ const DocumentList = ({
         icon: FiUsers,
         text: doc.user_group_name,
         color: 'accent.400',
+      };
+    }
+    if (doc.visibility === 'organization') {
+      return {
+        icon: FiPackage,
+        text: currentUser.organization_name || 'Organization',
+        color: 'blue.400',
       };
     }
     if (doc.visibility === 'public') {

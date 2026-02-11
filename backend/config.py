@@ -70,10 +70,35 @@ class Config:
     MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "100"))
     UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
     ALLOWED_EXTENSIONS = {'.pdf', '.txt', '.docx', '.doc'}
-    
+
+    # Organization Settings
+    INVITE_CODE_LENGTH = int(os.getenv("INVITE_CODE_LENGTH", "16"))
+    DEFAULT_INVITE_EXPIRY_DAYS = int(os.getenv("DEFAULT_INVITE_EXPIRY_DAYS", "7"))
+
+    # Landing Page and Deep Linking
+    LANDING_PAGE_URL = os.getenv("LANDING_PAGE_URL", "https://locket.ai")
+    DEEP_LINK_PROTOCOL = os.getenv("DEEP_LINK_PROTOCOL", "locket")
+
+    # OpenRouter AI Settings
+    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", None)
+    OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct:free")
+    AI_PROVIDER = os.getenv("AI_PROVIDER", "ollama")  # Options: "ollama", "openrouter"
+
     print(f"[CONFIG] Max upload size: {MAX_UPLOAD_SIZE_MB} MB")
     print(f"[CONFIG] Upload directory: {UPLOAD_DIR}")
     print(f"[CONFIG] Allowed extensions: {ALLOWED_EXTENSIONS}")
+    print(f"[CONFIG] Invite code length: {INVITE_CODE_LENGTH}")
+    print(f"[CONFIG] Default invite expiry: {DEFAULT_INVITE_EXPIRY_DAYS} days")
+    print(f"[CONFIG] Landing page URL: {LANDING_PAGE_URL}")
+    print(f"[CONFIG] Deep link protocol: {DEEP_LINK_PROTOCOL}://")
+    print(f"[CONFIG] AI Provider: {AI_PROVIDER}")
+    if AI_PROVIDER == "openrouter":
+        if OPENROUTER_API_KEY:
+            masked_key = OPENROUTER_API_KEY[:8] + "..." + OPENROUTER_API_KEY[-4:] if len(OPENROUTER_API_KEY) > 12 else "***"
+            print(f"[CONFIG] OpenRouter API Key: {masked_key}")
+            print(f"[CONFIG] OpenRouter Model: {OPENROUTER_MODEL}")
+        else:
+            print(f"[CONFIG WARNING] OpenRouter API key not set! AI features will not work.")
 
     # Create upload directory if it doesn't exist
     @classmethod

@@ -103,6 +103,9 @@ class UserResponse(BaseModel):
     updated_at: datetime
     last_login: Optional[datetime]
     last_password_change: Optional[datetime]
+    organization_id: Optional[int] = None
+    organization_name: Optional[str] = None
+    org_role: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -169,6 +172,8 @@ class DocumentResponse(BaseModel):
     visibility: str
     user_group_id: Optional[int] = None
     user_group_name: Optional[str] = None
+    organization_id: Optional[int] = None
+    organization_name: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -688,3 +693,116 @@ class ChatUpdateRequest(BaseModel):
     """Schema for updating a chat"""
     title: Optional[str] = Field(None, max_length=255)
     is_archived: Optional[bool] = None
+
+
+# ===================================
+# Organization Schemas
+# ===================================
+
+class OrganizationCreate(BaseModel):
+    """Schema for creating an organization"""
+    name: str = Field(..., min_length=1, max_length=100, description="Organization name")
+    description: Optional[str] = Field(None, max_length=500, description="Organization description")
+
+    @validator('name')
+    def name_not_empty(cls, v):
+        """Validate name is not just whitespace"""
+        if not v.strip():
+            raise ValueError('Organization name cannot be empty')
+        return v.strip()
+
+
+class OrganizationUpdate(BaseModel):
+    """Schema for updating an organization"""
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+    settings: Optional[Dict] = None
+
+
+class OrganizationMemberResponse(BaseModel):
+    """Schema for organization member response"""
+    id: int
+    user_id: int
+    username: str
+    email: str
+    full_name: Optional[str] = None
+    role: str
+    joined_at: datetime
+    invited_by_username: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class OrganizationResponse(BaseModel):
+    """Schema for organization response"""
+    id: int
+    name: str
+    description: Optional[str] = None
+    invite_code: str
+    created_by_id: int
+    creator_username: str
+    created_at: datetime
+    updated_at: datetime
+    member_count: int
+    admin_count: int
+    settings: Optional[Dict] = None
+
+    class Config:
+        from_attributes = True
+
+
+class OrganizationDetailResponse(BaseModel):
+    """Schema for detailed organization response with members"""
+    id: int
+    name: str
+    description: Optional[str] = None
+    invite_code: str
+    created_by_id: int
+    creator_username: str
+    created_at: datetime
+    updated_at: datetime
+    settings: Optional[Dict] = None
+    members: List[OrganizationMemberResponse] = []
+
+    class Config:
+        from_attributes = True
+
+
+class MemberRoleUpdate(BaseModel):
+    """Schema for updating member role"""
+    role: str = Field(..., pattern='^(member|admin)$', description="Member role: member or admin")
+
+
+class InviteCodeGenerate(BaseModel):
+    """Schema for generating invite code"""
+    expires_at: Optional[datetime] = None
+    max_uses: Optional[int] = Field(None, ge=1, description="Maximum number of uses (null = unlimited)")
+
+
+class EmailInvite(BaseModel):
+    """Schema for email invitation"""
+    email: EmailStr = Field(..., description="Email address to invite")
+
+
+class InviteResponse(BaseModel):
+    """Schema for invitation response"""
+    id: int
+    invite_code: str
+    invite_link: str
+    invite_type: str
+    email: Optional[str] = None
+    expires_at: Optional[datetime] = None
+    max_uses: Optional[int] = None
+    used_count: int
+    is_active: bool
+    created_at: datetime
+    created_by_username: str
+
+    class Config:
+        from_attributes = True
+
+
+class JoinOrgRequest(BaseModel):
+    """Schema for joining organization via invite code"""
+    invite_code: str = Field(..., min_length=1, description="Organization invite code")

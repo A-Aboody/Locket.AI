@@ -1,5 +1,3 @@
-const { ipcRenderer } = require('electron');
-
 // DOM elements
 const progressBar = document.getElementById('progress');
 const progressPercent = document.getElementById('progress-percent');
@@ -8,14 +6,16 @@ const spinner = document.getElementById('spinner');
 const errorContainer = document.getElementById('error-container');
 
 // Handle startup progress updates
-ipcRenderer.on('startup-progress', (event, data) => {
-    updateProgress(data.progress, data.message);
-});
+if (window.electron) {
+    window.electron.onStartupProgress((event, data) => {
+        updateProgress(data.progress, data.message);
+    });
 
-// Handle startup errors
-ipcRenderer.on('startup-error', (event, error) => {
-    showError(error);
-});
+    // Handle startup errors
+    window.electron.onStartupError((event, error) => {
+        showError(error);
+    });
+}
 
 function updateProgress(progress, message) {
     // Update progress bar
@@ -58,6 +58,7 @@ function showError(error) {
 
 function handleClose() {
     // Close the application
-    const { remote } = require('electron');
-    remote.app.quit();
+    if (window.close) {
+        window.close();
+    }
 }

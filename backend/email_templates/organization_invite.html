@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #e0e0e0;
+            background-color: #0a0a0a;
+            padding: 20px;
+        }
+        .email-wrapper {
+            max-width: 600px;
+            margin: 0 auto;
+            background: #0a0a0a;
+        }
+        .container {
+            background: #1E1E1E;
+            border: 1px solid #313131;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        }
+        .header {
+            background: linear-gradient(135deg, #1E1E1E 0%, #242424 100%);
+            border-bottom: 2px solid #248A8E;
+            padding: 40px 30px;
+            text-align: center;
+        }
+        .app-name {
+            color: white;
+            font-size: 32px;
+            font-weight: bold;
+            letter-spacing: 1px;
+            margin: 0;
+        }
+        .tagline {
+            color: #a3a3a3;
+            font-size: 14px;
+            margin-top: 8px;
+        }
+        .content {
+            background: #242424;
+            padding: 40px 30px;
+            color: #e0e0e0;
+        }
+        .content h2 {
+            color: #248A8E;
+            font-size: 24px;
+            margin-bottom: 20px;
+            font-weight: 600;
+        }
+        .content p {
+            margin: 15px 0;
+            color: #c2c2c2;
+        }
+        .org-badge {
+            background: #313131;
+            border: 2px solid #248A8E;
+            border-radius: 12px;
+            padding: 20px 30px;
+            margin: 25px 0;
+            text-align: center;
+        }
+        .org-label {
+            color: #a3a3a3;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+        .org-name {
+            font-size: 26px;
+            font-weight: bold;
+            color: #248A8E;
+            display: block;
+            margin-bottom: 10px;
+        }
+        .inviter-name {
+            font-size: 14px;
+            color: #c2c2c2;
+        }
+        .cta-button {
+            display: inline-block;
+            background: #248A8E;
+            color: white;
+            padding: 16px 40px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 16px;
+            margin: 20px 0;
+            text-align: center;
+            transition: background 0.3s ease;
+        }
+        .cta-button:hover {
+            background: #1c6d70;
+        }
+        .info-box {
+            background: #1E1E1E;
+            border-left: 4px solid #248A8E;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .info-box p {
+            margin: 5px 0;
+            font-size: 14px;
+            color: #c2c2c2;
+        }
+        .alternative-link {
+            background: #313131;
+            border: 1px solid #424242;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .alternative-link p {
+            font-size: 13px;
+            color: #a3a3a3;
+            margin: 8px 0;
+        }
+        .alternative-link code {
+            background: #1E1E1E;
+            color: #248A8E;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            word-break: break-all;
+        }
+        .footer {
+            background: #1E1E1E;
+            padding: 30px;
+            text-align: center;
+            border-top: 1px solid #313131;
+        }
+        .footer p {
+            font-size: 12px;
+            color: #858585;
+            margin: 5px 0;
+        }
+        .footer a {
+            color: #248A8E;
+            text-decoration: none;
+        }
+        .footer a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="email-wrapper">
+        <div class="container">
+            <div class="header">
+                <h1 class="app-name">{{app_name}}</h1>
+                <p class="tagline">Lock it with Locket</p>
+            </div>
+            <div class="content">
+                <h2>🎉 You've Been Invited!</h2>
+                <p>Hello,</p>
+                <p><strong>{{inviter_name}}</strong> has invited you to join their organization on {{app_name}}.</p>
+
+                <div class="org-badge">
+                    <div class="org-label">Organization</div>
+                    <span class="org-name">{{organization_name}}</span>
+                    <div class="inviter-name">Invited by {{inviter_name}}</div>
+                </div>
+
+                <p>By accepting this invitation, you'll be able to collaborate with your team, share documents securely, and unlock powerful AI-driven document intelligence features.</p>
+
+                <div style="text-align: center;">
+                    <a href="{{magic_link}}" class="cta-button">Accept Invitation</a>
+                </div>
+
+                <div class="info-box">
+                    <p><strong>This invitation expires on {{expiry_date}}</strong></p>
+                    <p>Accept the invitation before it expires to join the organization.</p>
+                </div>
+
+                <div class="alternative-link">
+                    <p><strong>Having trouble with the button?</strong></p>
+                    <p>Copy and paste this link into your browser:</p>
+                    <p><code>{{magic_link}}</code></p>
+                </div>
+
+                <p style="margin-top: 30px; font-size: 13px; color: #a3a3a3;">If you didn't expect this invitation or don't want to join, you can safely ignore this email.</p>
+            </div>
+            <div class="footer">
+                <p>&copy; 2025 {{app_name}}. All rights reserved.</p>
+                <p>Privacy-focused document intelligence platform</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

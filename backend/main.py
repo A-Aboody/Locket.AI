@@ -24,8 +24,11 @@ import auth
 import document_processing
 import search_service
 import chat_service
-from dependencies import get_current_user, require_admin, require_verified_email, require_admin_or_verified_email
-from database_models import User, UserRole, UserStatus, Document, Chat, ChatMessage, ChatCitation
+from dependencies import (
+    get_current_user, require_admin, require_verified_email, require_admin_or_verified_email,
+    require_org_member, require_org_admin, require_not_in_org
+)
+from database_models import User, UserRole, UserStatus, Document, Chat, ChatMessage, ChatCitation, Organization, OrganizationMember, OrgRole
 from email_service import email_service
 from verification_service import verification_service
 
@@ -66,6 +69,131 @@ app.add_middleware(
 
 # Security scheme for Swagger UI
 security = HTTPBearer()
+
+def initialize_database_sync():
+    """Synchronous database initialization function"""
+    try:
+        from database_models import Base
+        from db_config import engine
+        from sqlalchemy import inspect, text
+
+        logger.info("=" * 60)
+        logger.info("Starting database initialization...")
+        logger.info("=" * 60)
+
+        # Test database connection with timeout
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            logger.info("✓ Database connection successful")
+        except Exception as e:
+            logger.error(f"✗ Database connection failed: {e}")
+            logger.error(traceback.format_exc())
+            return
+
+        # Check if tables exist
+        inspector = inspect(engine)
+        existing_tables = inspector.get_table_names()
+        logger.info(f"Existing tables: {existing_tables}")
+
+        required_tables = [
+            'users', 'documents', 'verification_codes',
+            'password_reset_tokens', 'user_groups', 'user_group_members',
+            'organizations', 'organization_members', 'organization_invites',
+            'chats', 'chat_messages', 'chat_citations'
+        ]
+
+        missing_tables = [table for table in required_tables if table not in existing_tables]
+
+        if missing_tables:
+            logger.info(f"Creating missing database tables: {missing_tables}")
+            Base.metadata.create_all(bind=engine)
+
+            # Verify tables were created
+            inspector = inspect(engine)
+            new_tables = inspector.get_table_names()
+            created_tables = [table for table in missing_tables if table in new_tables]
+            logger.info(f"✓ Database tables created successfully: {created_tables}")
+
+            if len(created_tables) != len(missing_tables):
+                failed_tables = [table for table in missing_tables if table not in new_tables]
+                logger.error(f"✗ Failed to create some tables: {failed_tables}")
+        else:
+            logger.info("✓ All required database tables exist")
+
+        # Check for missing columns in existing tables (schema migration)
+        logger.info("Checking for schema updates...")
+
+        # Refresh inspector to get current state after table creation
+        inspector = inspect(engine)
+        existing_tables = inspector.get_table_names()
+
+        # Only run migrations if users table exists
+        if 'users' in existing_tables:
+            columns = [col['name'] for col in inspector.get_columns('users')]
+
+            # Check if we need to add any columns
+            needs_org_id = 'organization_id' not in columns
+            needs_last_password = 'last_password_change' not in columns
+
+            if needs_org_id or needs_last_password:
+                try:
+                    # Use begin() for automatic transaction handling
+                    with engine.begin() as conn:
+                        if needs_org_id:
+                            logger.info("Adding missing organization_id column to users table...")
+                            # Check if organizations table exists before adding foreign key
+                            if 'organizations' in existing_tables:
+                                conn.execute(text("ALTER TABLE users ADD COLUMN organization_id INTEGER"))
+                                conn.execute(text("ALTER TABLE users ADD CONSTRAINT fk_users_organization FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL"))
+                                logger.info("✓ Added organization_id column with foreign key")
+                            else:
+                                # Just add the column without constraint if organizations table doesn't exist
+                                conn.execute(text("ALTER TABLE users ADD COLUMN organization_id INTEGER"))
+                                logger.info("✓ Added organization_id column (without constraint)")
+
+                        if needs_last_password:
+                            logger.info("Adding missing last_password_change column to users table...")
+                            conn.execute(text("ALTER TABLE users ADD COLUMN last_password_change TIMESTAMP WITH TIME ZONE"))
+                            logger.info("✓ Added last_password_change column")
+
+                    logger.info("✓ Schema migration completed successfully")
+                except Exception as e:
+                    logger.error(f"✗ Schema migration failed: {e}")
+                    logger.error(traceback.format_exc())
+                    # Don't fail startup, just log the error
+            else:
+                logger.info("✓ Schema is up to date")
+        else:
+            logger.info("✓ No schema migrations needed")
+
+        logger.info("✓ Schema update check complete")
+
+        logger.info("=" * 60)
+        logger.info("Database initialization complete")
+        logger.info("=" * 60)
+
+    except Exception as e:
+        logger.error(f"✗ Error during database initialization: {e}")
+        logger.error(traceback.format_exc())
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database on startup - runs in background thread"""
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+
+    logger.info("Starting background database initialization...")
+
+    # Run database initialization in a background thread to not block server startup
+    executor = ThreadPoolExecutor(max_workers=1)
+    loop = asyncio.get_event_loop()
+
+    # Start the initialization in the background
+    loop.run_in_executor(executor, initialize_database_sync)
+
+    logger.info("Database initialization started in background. Server is ready to accept requests.")
 
 @app.get("/")
 def root():
@@ -108,69 +236,82 @@ def health_check(db: Session = Depends(get_db)):
 
 @app.post("/api/auth/register", response_model=schemas.AuthResponse, status_code=status.HTTP_201_CREATED)
 async def register(
-    user_data: schemas.UserRegister, 
+    user_data: schemas.UserRegister,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """
     Register a new user with email verification
     """
-    logger.info(f"Registration attempt for email: {user_data.email}, username: {user_data.username}")
-    
-    # Check if email already exists
-    existing_user = crud.get_user_by_email(db, user_data.email)
-    if existing_user:
-        logger.warning(f"Registration failed - email already exists: {user_data.email}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
-        )
-    
-    # Check if username already exists
-    existing_username = crud.get_user_by_username(db, user_data.username)
-    if existing_username:
-        logger.warning(f"Registration failed - username already taken: {user_data.username}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username already taken"
-        )
-    
-    # Create new user (initially unverified)
     try:
-        new_user = crud.create_user(db, user_data)
-        logger.info(f"User created successfully: {new_user.id} - {new_user.username}")
+        logger.info(f"Registration attempt for email: {user_data.email}, username: {user_data.username}")
+
+        # Check if email already exists
+        existing_user = crud.get_user_by_email(db, user_data.email)
+        if existing_user:
+            logger.warning(f"Registration failed - email already exists: {user_data.email}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered"
+            )
+
+        # Check if username already exists
+        existing_username = crud.get_user_by_username(db, user_data.username)
+        if existing_username:
+            logger.warning(f"Registration failed - username already taken: {user_data.username}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username already taken"
+            )
+
+        # Create new user (initially unverified)
+        try:
+            new_user = crud.create_user(db, user_data)
+            logger.info(f"User created successfully: {new_user.id} - {new_user.username}")
+        except Exception as e:
+            logger.error(f"User creation failed: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to create user account: {str(e)}"
+            )
+
+        # Generate verification code
+        verification_code = verification_service.create_verification_code(new_user.id, new_user.email)
+
+        # Send verification email in background
+        if verification_code:
+            background_tasks.add_task(
+                email_service.send_verification_code,
+                new_user.email,
+                verification_code
+            )
+            logger.info(f"Verification code generated and email queued for user: {new_user.id}")
+        else:
+            logger.error(f"Failed to generate verification code for user: {new_user.id}")
+
+        # Create access token (limited permissions until verified)
+        access_token = auth.create_access_token(
+            data={"sub": str(new_user.id), "role": new_user.role.value, "verified": False}
+        )
+
+        return {
+            "access_token": access_token,
+            "user": new_user,
+            "requires_verification": True,
+            "message": "Registration successful. Please check your email for verification code."
+        }
+    except HTTPException:
+        # Re-raise HTTP exceptions (these are expected errors)
+        raise
     except Exception as e:
-        logger.error(f"User creation failed: {e}")
+        # Log unexpected errors with full traceback
+        logger.error(f"Unexpected registration error: {str(e)}")
+        logger.error(traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create user account"
+            detail=f"Registration failed: {str(e)}"
         )
-    
-    # Generate verification code
-    verification_code = verification_service.create_verification_code(new_user.id, new_user.email)
-    
-    # Send verification email in background
-    if verification_code:
-        background_tasks.add_task(
-            email_service.send_verification_code,
-            new_user.email,
-            verification_code
-        )
-        logger.info(f"Verification code generated and email queued for user: {new_user.id}")
-    else:
-        logger.error(f"Failed to generate verification code for user: {new_user.id}")
-    
-    # Create access token (limited permissions until verified)
-    access_token = auth.create_access_token(
-        data={"sub": str(new_user.id), "role": new_user.role.value, "verified": False}
-    )
-    
-    return {
-        "access_token": access_token,
-        "user": new_user,
-        "requires_verification": True,
-        "message": "Registration successful. Please check your email for verification code."
-    }
 
 
 @app.post("/api/auth/verify-email", response_model=schemas.VerificationResponse)
@@ -1685,6 +1826,813 @@ def get_group_documents(
     return formatted_docs
 
 
+# ===================================
+# Organization Endpoints
+# ===================================
+
+@app.post("/api/organizations", response_model=schemas.OrganizationResponse)
+def create_organization(
+    org_data: schemas.OrganizationCreate,
+    current_user: User = Depends(require_not_in_org),
+    db: Session = Depends(get_db)
+):
+    """
+    Create a new organization
+    User becomes the organization admin
+    Requires: verified email, not already in an organization
+    """
+    # Check if organization name already exists
+    existing_org = crud.get_organization_by_name(db, org_data.name)
+    if existing_org:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="An organization with this name already exists"
+        )
+
+    # Create organization
+    org = crud.create_organization(
+        db=db,
+        name=org_data.name,
+        description=org_data.description,
+        created_by_id=current_user.id
+    )
+
+    # Get member count and admin count
+    member_count = len(org.members)
+    admin_count = crud.get_organization_admin_count(db, org.id)
+
+    return {
+        "id": org.id,
+        "name": org.name,
+        "description": org.description,
+        "invite_code": org.invite_code,
+        "created_by_id": org.created_by_id,
+        "creator_username": current_user.username,
+        "created_at": org.created_at,
+        "updated_at": org.updated_at,
+        "member_count": member_count,
+        "admin_count": admin_count,
+        "settings": org.settings
+    }
+
+
+@app.get("/api/organizations/my", response_model=schemas.OrganizationDetailResponse)
+def get_my_organization(
+    current_user: User = Depends(require_verified_email),
+    db: Session = Depends(get_db)
+):
+    """
+    Get current user's organization with members list
+    """
+    if not current_user.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="You are not a member of any organization"
+        )
+
+    org = crud.get_organization_by_id(db, current_user.organization_id)
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found"
+        )
+
+    # Get members with details
+    members = crud.get_organization_members(db, org.id)
+    member_list = []
+    for member in members:
+        member_list.append({
+            "id": member.id,
+            "user_id": member.user_id,
+            "username": member.user.username,
+            "email": member.user.email,
+            "full_name": member.user.full_name,
+            "role": member.role.value,
+            "joined_at": member.joined_at,
+            "invited_by_username": member.invited_by.username if member.invited_by else None
+        })
+
+    creator = crud.get_user_by_id(db, org.created_by_id)
+
+    return {
+        "id": org.id,
+        "name": org.name,
+        "description": org.description,
+        "invite_code": org.invite_code,
+        "created_by_id": org.created_by_id,
+        "creator_username": creator.username if creator else "Unknown",
+        "created_at": org.created_at,
+        "updated_at": org.updated_at,
+        "settings": org.settings,
+        "members": member_list
+    }
+
+
+@app.get("/api/organizations/{org_id}", response_model=schemas.OrganizationResponse)
+def get_organization(
+    org_id: int,
+    current_user: User = Depends(require_org_member),
+    db: Session = Depends(get_db)
+):
+    """
+    Get organization details
+    Requires: organization membership
+    """
+    org = crud.get_organization_by_id(db, org_id)
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found"
+        )
+
+    member_count = len(org.members)
+    admin_count = crud.get_organization_admin_count(db, org.id)
+    creator = crud.get_user_by_id(db, org.created_by_id)
+
+    return {
+        "id": org.id,
+        "name": org.name,
+        "description": org.description,
+        "invite_code": org.invite_code,
+        "created_by_id": org.created_by_id,
+        "creator_username": creator.username if creator else "Unknown",
+        "created_at": org.created_at,
+        "updated_at": org.updated_at,
+        "member_count": member_count,
+        "admin_count": admin_count,
+        "settings": org.settings
+    }
+
+
+@app.put("/api/organizations/{org_id}", response_model=schemas.OrganizationResponse)
+def update_organization(
+    org_id: int,
+    org_data: schemas.OrganizationUpdate,
+    current_user: User = Depends(require_org_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Update organization details
+    Requires: organization admin
+    """
+    org = crud.update_organization(
+        db=db,
+        org_id=org_id,
+        name=org_data.name,
+        description=org_data.description,
+        settings=org_data.settings
+    )
+
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found"
+        )
+
+    member_count = len(org.members)
+    admin_count = crud.get_organization_admin_count(db, org.id)
+    creator = crud.get_user_by_id(db, org.created_by_id)
+
+    return {
+        "id": org.id,
+        "name": org.name,
+        "description": org.description,
+        "invite_code": org.invite_code,
+        "created_by_id": org.created_by_id,
+        "creator_username": creator.username if creator else "Unknown",
+        "created_at": org.created_at,
+        "updated_at": org.updated_at,
+        "member_count": member_count,
+        "admin_count": admin_count,
+        "settings": org.settings
+    }
+
+
+@app.delete("/api/organizations/{org_id}", response_model=schemas.Message)
+def delete_organization(
+    org_id: int,
+    current_user: User = Depends(require_verified_email),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete organization
+    Only the creator can delete the organization
+    """
+    org = crud.get_organization_by_id(db, org_id)
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found"
+        )
+
+    # Only creator can delete
+    if org.created_by_id != current_user.id and current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the organization creator can delete the organization"
+        )
+
+    success = crud.delete_organization(db, org_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete organization"
+        )
+
+    return {"message": "Organization deleted successfully"}
+
+
+# ===================================
+# Organization Member Endpoints
+# ===================================
+
+@app.get("/api/organizations/{org_id}/members", response_model=List[schemas.OrganizationMemberResponse])
+def get_organization_members(
+    org_id: int,
+    current_user: User = Depends(require_org_member),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all members of an organization
+    Requires: organization membership
+    """
+    members = crud.get_organization_members(db, org_id)
+
+    member_list = []
+    for member in members:
+        member_list.append({
+            "id": member.id,
+            "user_id": member.user_id,
+            "username": member.user.username,
+            "email": member.user.email,
+            "full_name": member.user.full_name,
+            "role": member.role.value,
+            "joined_at": member.joined_at,
+            "invited_by_username": member.invited_by.username if member.invited_by else None
+        })
+
+    return member_list
+
+
+@app.put("/api/organizations/{org_id}/members/{user_id}/role", response_model=schemas.Message)
+def update_member_role(
+    org_id: int,
+    user_id: int,
+    role_update: schemas.MemberRoleUpdate,
+    current_user: User = Depends(require_org_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Update organization member's role (promote/demote)
+    Requires: organization admin
+    Cannot demote the organization creator
+    """
+    org = crud.get_organization_by_id(db, org_id)
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found"
+        )
+
+    # Cannot demote creator
+    if user_id == org.created_by_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot change the role of the organization creator"
+        )
+
+    # Check if demoting the last admin
+    new_role = OrgRole.ADMIN if role_update.role == "admin" else OrgRole.MEMBER
+    if new_role == OrgRole.MEMBER:
+        admin_count = crud.get_organization_admin_count(db, org_id)
+        member = crud.get_organization_member(db, org_id, user_id)
+        if member and member.role == OrgRole.ADMIN and admin_count <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot demote the last admin. Promote another member first."
+            )
+
+    # Update role
+    updated_member = crud.update_member_role(db, org_id, user_id, new_role)
+    if not updated_member:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Member not found"
+        )
+
+    action = "promoted to admin" if new_role == OrgRole.ADMIN else "demoted to member"
+    return {"message": f"Member {action} successfully"}
+
+
+@app.delete("/api/organizations/{org_id}/members/{user_id}", response_model=schemas.Message)
+def remove_organization_member(
+    org_id: int,
+    user_id: int,
+    current_user: User = Depends(require_verified_email),
+    db: Session = Depends(get_db)
+):
+    """
+    Remove member from organization
+    Admins can remove any member (except creator)
+    Members can remove themselves
+    """
+    org = crud.get_organization_by_id(db, org_id)
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found"
+        )
+
+    # Cannot remove creator
+    if user_id == org.created_by_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot remove the organization creator. Delete the organization instead."
+        )
+
+    # Check permissions
+    is_admin = crud.is_organization_admin(db, org_id, current_user.id)
+    is_self = user_id == current_user.id
+
+    if not (is_admin or is_self or current_user.role == UserRole.ADMIN):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only remove yourself or must be an organization admin"
+        )
+
+    success = crud.remove_user_from_organization(db, org_id, user_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Member not found"
+        )
+
+    return {"message": "Member removed successfully"}
+
+
+@app.post("/api/organizations/{org_id}/leave", response_model=schemas.Message)
+def leave_organization(
+    org_id: int,
+    current_user: User = Depends(require_org_member),
+    db: Session = Depends(get_db)
+):
+    """
+    Leave organization
+    Creator cannot leave (must delete the organization instead)
+    """
+    org = crud.get_organization_by_id(db, org_id)
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found"
+        )
+
+    # Creator cannot leave
+    if current_user.id == org.created_by_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Organization creator cannot leave. Delete the organization or transfer ownership first."
+        )
+
+    success = crud.remove_user_from_organization(db, org_id, current_user.id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to leave organization"
+        )
+
+    return {"message": "Successfully left the organization"}
+
+
+# ===================================
+# Organization Invite Endpoints
+# ===================================
+
+@app.post("/api/organizations/{org_id}/invites/generate-code", response_model=schemas.InviteResponse)
+def generate_invite_code(
+    org_id: int,
+    invite_options: schemas.InviteCodeGenerate,
+    current_user: User = Depends(require_verified_email),
+    db: Session = Depends(get_db)
+):
+    """
+    Generate organization invite code
+    Admins can always generate invites
+    Members can generate if organization settings allow
+    """
+    org = crud.get_organization_by_id(db, org_id)
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found"
+        )
+
+    # Check permissions
+    is_admin = crud.is_organization_admin(db, org_id, current_user.id)
+    is_member = crud.is_organization_member(db, org_id, current_user.id)
+    allow_member_invites = org.settings.get("allow_member_invites", True) if org.settings else True
+
+    if not (is_admin or (is_member and allow_member_invites) or current_user.role == UserRole.ADMIN):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only organization admins can generate invite codes"
+        )
+
+    # Create invite
+    invite = crud.create_organization_invite(
+        db=db,
+        org_id=org_id,
+        created_by_id=current_user.id,
+        invite_type='code',
+        expires_at=invite_options.expires_at,
+        max_uses=invite_options.max_uses
+    )
+
+    # Generate invite link (you can customize the base URL)
+    base_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    invite_link = f"{base_url}/join?code={invite.invite_code}"
+
+    return {
+        "id": invite.id,
+        "invite_code": invite.invite_code,
+        "invite_link": invite_link,
+        "invite_type": invite.invite_type,
+        "email": invite.email,
+        "expires_at": invite.expires_at,
+        "max_uses": invite.max_uses,
+        "used_count": invite.used_count,
+        "is_active": invite.is_active,
+        "created_at": invite.created_at,
+        "created_by_username": current_user.username
+    }
+
+
+@app.post("/api/organizations/{org_id}/invites/email", response_model=schemas.InviteResponse)
+def send_email_invite(
+    org_id: int,
+    email_invite: schemas.EmailInvite,
+    current_user: User = Depends(require_org_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Send email invitation to join organization
+    Requires: organization admin
+    """
+    org = crud.get_organization_by_id(db, org_id)
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found"
+        )
+
+    # Check if user with this email already exists and is in an organization
+    existing_user = crud.get_user_by_email(db, email_invite.email)
+    if existing_user and existing_user.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User with this email is already in an organization"
+        )
+
+    # Create invite
+    invite = crud.create_organization_invite(
+        db=db,
+        org_id=org_id,
+        created_by_id=current_user.id,
+        invite_type='email',
+        email=email_invite.email
+    )
+
+    # Send email invitation
+    try:
+        # Format expiry date for email
+        expiry_date_str = "7 days"
+        if invite.expires_at:
+            expiry_date_str = invite.expires_at.strftime("%B %d, %Y")
+
+        inviter_name = current_user.full_name or current_user.username
+
+        email_sent = email_service.send_organization_invite(
+            recipient_email=email_invite.email,
+            organization_name=org.name,
+            inviter_name=inviter_name,
+            invite_code=invite.invite_code,
+            expiry_date=expiry_date_str
+        )
+
+        if not email_sent:
+            logger.warning(f"Failed to send invite email to {email_invite.email} - invite still created with ID {invite.id}")
+            # Don't fail the request - invite is created, email just didn't send
+            # Admin can resend from dashboard
+
+    except Exception as e:
+        logger.error(f"Error sending invite email: {str(e)}")
+        # Continue - invite is still valid even if email fails
+
+    base_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    invite_link = f"{base_url}/join?code={invite.invite_code}"
+
+    return {
+        "id": invite.id,
+        "invite_code": invite.invite_code,
+        "invite_link": invite_link,
+        "invite_type": invite.invite_type,
+        "email": invite.email,
+        "expires_at": invite.expires_at,
+        "max_uses": invite.max_uses,
+        "used_count": invite.used_count,
+        "is_active": invite.is_active,
+        "created_at": invite.created_at,
+        "created_by_username": current_user.username
+    }
+
+
+@app.get("/api/organizations/{org_id}/invites", response_model=List[schemas.InviteResponse])
+def list_organization_invites(
+    org_id: int,
+    active_only: bool = True,
+    current_user: User = Depends(require_org_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    List all invitations for organization
+    Requires: organization admin
+    """
+    # Verify organization exists
+    org = crud.get_organization_by_id(db, org_id)
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found"
+        )
+
+    # Get invites
+    invites = crud.get_organization_invites(db, org_id, active_only=active_only)
+
+    # Format response
+    base_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    result = []
+    for invite in invites:
+        invite_link = f"{base_url}/join?code={invite.invite_code}"
+        creator = crud.get_user_by_id(db, invite.created_by_id)
+
+        result.append({
+            "id": invite.id,
+            "invite_code": invite.invite_code,
+            "invite_link": invite_link,
+            "invite_type": invite.invite_type,
+            "email": invite.email,
+            "expires_at": invite.expires_at,
+            "max_uses": invite.max_uses,
+            "used_count": invite.used_count,
+            "is_active": invite.is_active,
+            "created_at": invite.created_at,
+            "created_by_username": creator.username if creator else "Unknown"
+        })
+
+    return result
+
+
+@app.delete("/api/organizations/{org_id}/invites/{invite_id}", response_model=schemas.Message)
+def revoke_organization_invite(
+    org_id: int,
+    invite_id: int,
+    current_user: User = Depends(require_org_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Revoke (deactivate) an organization invitation
+    Requires: organization admin
+    """
+    # Verify organization exists
+    org = crud.get_organization_by_id(db, org_id)
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found"
+        )
+
+    # Get invite and verify it belongs to this organization
+    invite = crud.get_organization_invite_by_id(db, invite_id)
+    if not invite or invite.organization_id != org_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invitation not found"
+        )
+
+    # Revoke the invite
+    success = crud.revoke_organization_invite(db, invite_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to revoke invitation"
+        )
+
+    return {"message": "Invitation revoked successfully"}
+
+
+@app.post("/api/organizations/{org_id}/invites/{invite_id}/resend", response_model=schemas.Message)
+def resend_email_invite(
+    org_id: int,
+    invite_id: int,
+    current_user: User = Depends(require_org_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Resend invitation email
+    Requires: organization admin, invite must be email type
+    """
+    # Verify organization exists
+    org = crud.get_organization_by_id(db, org_id)
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found"
+        )
+
+    # Get invite and verify it belongs to this organization
+    invite = crud.get_organization_invite_by_id(db, invite_id)
+    if not invite or invite.organization_id != org_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invitation not found"
+        )
+
+    # Check if it's an email type invite
+    if invite.invite_type != 'email':
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Can only resend email invitations"
+        )
+
+    # Check if still active and not expired
+    if not invite.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot resend revoked invitation"
+        )
+
+    if invite.expires_at and invite.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot resend expired invitation"
+        )
+
+    # Resend email
+    try:
+        # Format expiry date for email
+        expiry_date_str = "7 days"
+        if invite.expires_at:
+            expiry_date_str = invite.expires_at.strftime("%B %d, %Y")
+
+        inviter_name = current_user.full_name or current_user.username
+
+        email_sent = email_service.send_organization_invite(
+            recipient_email=invite.email,
+            organization_name=org.name,
+            inviter_name=inviter_name,
+            invite_code=invite.invite_code,
+            expiry_date=expiry_date_str
+        )
+
+        if not email_sent:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to send email. Please check SMTP configuration."
+            )
+
+        return {"message": "Invitation email resent successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error resending invite email: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to resend invitation email"
+        )
+
+
+@app.post("/api/organizations/join/{invite_code}", response_model=schemas.OrganizationResponse)
+def join_organization(
+    invite_code: str,
+    current_user: User = Depends(require_not_in_org),
+    db: Session = Depends(get_db)
+):
+    """
+    Join organization via invite code
+    Requires: verified email, not already in an organization
+    """
+    # Validate and use invite
+    success, message, invite = crud.validate_and_use_invite(db, invite_code, current_user.id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=message
+        )
+
+    # Add user to organization
+    membership = crud.add_user_to_organization(
+        db=db,
+        org_id=invite.organization_id,
+        user_id=current_user.id,
+        role=OrgRole.MEMBER,
+        invited_by_id=invite.created_by_id
+    )
+
+    if not membership:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to join organization"
+        )
+
+    # Get organization details
+    org = crud.get_organization_by_id(db, invite.organization_id)
+    member_count = len(org.members)
+    admin_count = crud.get_organization_admin_count(db, org.id)
+    creator = crud.get_user_by_id(db, org.created_by_id)
+
+    return {
+        "id": org.id,
+        "name": org.name,
+        "description": org.description,
+        "invite_code": org.invite_code,
+        "created_by_id": org.created_by_id,
+        "creator_username": creator.username if creator else "Unknown",
+        "created_at": org.created_at,
+        "updated_at": org.updated_at,
+        "member_count": member_count,
+        "admin_count": admin_count,
+        "settings": org.settings
+    }
+
+
+@app.get("/api/organizations/{org_id}/invites", response_model=List[schemas.InviteResponse])
+def get_organization_invites(
+    org_id: int,
+    active_only: bool = True,
+    current_user: User = Depends(require_org_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all invites for an organization
+    Requires: organization admin
+    """
+    invites = crud.get_organization_invites(db, org_id, active_only)
+
+    base_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    invite_list = []
+    for invite in invites:
+        creator = crud.get_user_by_id(db, invite.created_by_id)
+        invite_list.append({
+            "id": invite.id,
+            "invite_code": invite.invite_code,
+            "invite_link": f"{base_url}/join?code={invite.invite_code}",
+            "invite_type": invite.invite_type,
+            "email": invite.email,
+            "expires_at": invite.expires_at,
+            "max_uses": invite.max_uses,
+            "used_count": invite.used_count,
+            "is_active": invite.is_active,
+            "created_at": invite.created_at,
+            "created_by_username": creator.username if creator else "Unknown"
+        })
+
+    return invite_list
+
+
+@app.delete("/api/organizations/{org_id}/invites/{invite_id}", response_model=schemas.Message)
+def revoke_invite(
+    org_id: int,
+    invite_id: int,
+    current_user: User = Depends(require_org_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Revoke (deactivate) an organization invite
+    Requires: organization admin
+    """
+    # Verify invite belongs to this organization
+    invite = db.query(crud.OrganizationInvite).filter(
+        crud.OrganizationInvite.id == invite_id,
+        crud.OrganizationInvite.organization_id == org_id
+    ).first()
+
+    if not invite:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invite not found"
+        )
+
+    success = crud.revoke_organization_invite(db, invite_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to revoke invite"
+        )
+
+    return {"message": "Invite revoked successfully"}
+
+
 # Add cleanup endpoint (admin only)
 @app.post("/api/auth/cleanup-tokens", response_model=schemas.Message)
 def cleanup_expired_tokens(current_user: User = Depends(require_admin), db: Session = Depends(get_db)):
@@ -2031,17 +2979,24 @@ def send_message(
         db.commit()
         db.refresh(ai_message)
 
-        # Create citations only if the query actually needs document context
-        # Don't cite for greetings, casual conversation, or questions about Locket
+        # Create citations for documents that were used
         citations = []
-        has_relevant_docs = relevant_docs and len(relevant_docs) > 0
-        if has_relevant_docs and ai_service.should_cite_sources(message_data.content, has_relevant_docs):
-            citations = chat_service.create_chat_citations(
-                db=db,
-                chat_id=chat_id,
-                message_id=ai_message.id,
-                relevant_docs=relevant_docs
-            )
+
+        # Check if AI explicitly said information is not in uploaded documents
+        info_not_in_docs = "not found in your uploaded documents" in ai_response_content.lower()
+
+        if not info_not_in_docs and relevant_docs:
+            # Use all documents with >20% relevance
+            usable_docs = [doc_tuple for doc_tuple in relevant_docs if doc_tuple[1] > 0.2]
+
+            # If we have usable docs and AI didn't say "not found", create citations
+            if usable_docs:
+                citations = chat_service.create_chat_citations(
+                    db=db,
+                    chat_id=chat_id,
+                    message_id=ai_message.id,
+                    relevant_docs=usable_docs[:5]  # Limit to top 5
+                )
 
         # Auto-generate title from first message if not set
         if not chat.title and len(conversation_history) == 0:

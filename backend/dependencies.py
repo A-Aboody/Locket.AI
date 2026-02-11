@@ -8,7 +8,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from db_config import get_db
-from database_models import User, UserRole, UserStatus
+from database_models import User, UserRole, UserStatus, Organization, OrgRole
 import crud
 import auth
 
@@ -127,13 +127,13 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
 def require_admin_or_verified_email(current_user: User = Depends(get_current_user)) -> User:
     """
     Require either admin role or verified email
-    
+
     Args:
         current_user: Current authenticated user
-    
+
     Returns:
         Current user if admin or verified
-    
+
     Raises:
         HTTPException: If neither admin nor verified
     """
@@ -142,5 +142,99 @@ def require_admin_or_verified_email(current_user: User = Depends(get_current_use
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access or verified email required"
         )
-    
+
+    return current_user
+
+
+# ===================================
+# Organization Dependencies
+# ===================================
+
+def require_org_member(
+    org_id: int,
+    current_user: User = Depends(require_verified_email),
+    db: Session = Depends(get_db)
+) -> User:
+    """
+    Require user to be a member of the specified organization
+
+    Args:
+        org_id: Organization ID
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        Current user if they are a member
+
+    Raises:
+        HTTPException: If user is not a member
+    """
+    # System admin can access everything
+    if current_user.role == UserRole.ADMIN:
+        return current_user
+
+    # Check if user is in the organization
+    if not crud.is_organization_member(db, org_id, current_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization membership required"
+        )
+
+    return current_user
+
+
+def require_org_admin(
+    org_id: int,
+    current_user: User = Depends(require_verified_email),
+    db: Session = Depends(get_db)
+) -> User:
+    """
+    Require user to be an admin of the specified organization
+
+    Args:
+        org_id: Organization ID
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        Current user if they are an org admin
+
+    Raises:
+        HTTPException: If user is not an org admin
+    """
+    # System admin can access everything
+    if current_user.role == UserRole.ADMIN:
+        return current_user
+
+    # Check if user is an admin of the organization
+    if not crud.is_organization_admin(db, org_id, current_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization admin access required"
+        )
+
+    return current_user
+
+
+def require_not_in_org(
+    current_user: User = Depends(require_verified_email)
+) -> User:
+    """
+    Require user to NOT be in any organization (for creating/joining orgs)
+
+    Args:
+        current_user: Current authenticated user
+
+    Returns:
+        Current user if they are not in an organization
+
+    Raises:
+        HTTPException: If user is already in an organization
+    """
+    if current_user.organization_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You are already a member of an organization"
+        )
+
     return current_user

@@ -27,7 +27,13 @@ import TextView from './TextView';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+// Use local worker file for Electron compatibility
+// In production, the worker is bundled at ./pdfjs/pdf.worker.min.mjs
+// Use window.location to resolve the correct path in Electron
+pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs/pdf.worker.min.mjs',
+  window.location.href
+).toString();
 
 // Add CSS for PDF search highlighting
 if (typeof document !== 'undefined') {

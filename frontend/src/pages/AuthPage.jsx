@@ -1,7 +1,7 @@
-import { Box, Container, Flex, Heading, Text, Icon, useDisclosure, HStack } from '@chakra-ui/react';
+import { Box, Container, Flex, Heading, Text, Icon, useDisclosure, HStack, Alert, AlertIcon } from '@chakra-ui/react';
 import { FiLock, FiShield, FiZap, FiCpu } from 'react-icons/fi';
 import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import AuthForm from '../custom_components/AuthForm';
 import VerificationModal from '../custom_components/VerificationModal';
 import ResetPasswordModal from '../custom_components/ResetPasswordModal';
@@ -12,17 +12,19 @@ const AuthPage = () => {
   const [isLogin, setIsLogin] = useState(true);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  
-  const { 
-    isOpen: isVerificationOpen, 
-    onOpen: onVerificationOpen, 
-    onClose: onVerificationClose 
+  const location = useLocation();
+  const hasPendingFile = location.state?.hasPendingFile;
+
+  const {
+    isOpen: isVerificationOpen,
+    onOpen: onVerificationOpen,
+    onClose: onVerificationClose
   } = useDisclosure();
-  
-  const { 
-    isOpen: isResetOpen, 
-    onOpen: onResetOpen, 
-    onClose: onResetClose 
+
+  const {
+    isOpen: isResetOpen,
+    onOpen: onResetOpen,
+    onClose: onResetClose
   } = useDisclosure();
 
   // Check for reset password token in URL
@@ -70,15 +72,42 @@ const AuthPage = () => {
   const handleVerificationComplete = (verifiedUser) => {
     setUser(verifiedUser);
     setRequiresVerification(false);
-    
-    // Redirect to dashboard after successful verification
+
+    // Close verification modal
+    onVerificationClose();
+
+    // Navigate to organization onboarding page
     setTimeout(() => {
-      navigate('/dashboard');
-    }, 1000);
+      navigate('/organization-onboarding');
+    }, 500);
   };
 
   return (
     <Flex minH="100vh" bg="primary.950" position="relative" overflow="hidden">
+      {/* Show alert if user needs to log in to view file */}
+      {hasPendingFile && (
+        <Box
+          position="fixed"
+          top={4}
+          left="50%"
+          transform="translateX(-50%)"
+          zIndex={10000}
+          w="90%"
+          maxW="md"
+        >
+          <Alert
+            status="info"
+            bg="primary.800"
+            borderRadius="md"
+            border="1px"
+            borderColor="accent.500"
+          >
+            <AlertIcon color="accent.500" />
+            <Text color="gray.300">Please sign in to open the file</Text>
+          </Alert>
+        </Box>
+      )}
+
       {/* Ambient background glows */}
       <Box
         position="absolute"
@@ -356,6 +385,7 @@ const AuthPage = () => {
         isOpen={isResetOpen}
         onClose={onResetClose}
       />
+
     </Flex>
   );
 };

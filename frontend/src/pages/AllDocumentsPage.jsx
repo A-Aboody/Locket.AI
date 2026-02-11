@@ -22,10 +22,12 @@ import AppHeader from '../custom_components/AppHeader';
 import NavTabs from '../custom_components/NavTabs';
 import PageTransition from '../custom_components/PageTransition';
 import { searchAPI, documentsAPI } from '../utils/api';
+import { filterDocumentsByMode } from '../utils/documentFilters';
 
 const AllDocumentsPage = () => {
   const [user, setUser] = useState(null);
-  const [documents, setDocuments] = useState([]);
+  const [allDocuments, setAllDocuments] = useState([]); // Store all docs from backend
+  const [documents, setDocuments] = useState([]); // Filtered docs for display
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [viewingDocumentId, setViewingDocumentId] = useState(null);
   const [previewDocumentId, setPreviewDocumentId] = useState(null);
@@ -48,13 +50,30 @@ const AllDocumentsPage = () => {
   }, []);
 
   useEffect(() => {
-    fetchAllDocuments();
-  }, [refreshTrigger]);
+    if (user) {
+      fetchAllDocuments();
+    }
+  }, [refreshTrigger, user]);
+
+  // Listen for mode changes and re-filter documents
+  useEffect(() => {
+    const handleModeChange = () => {
+      if (user) {
+        // Re-filter documents when mode changes
+        setDocuments(filterDocumentsByMode(allDocuments, user.id));
+      }
+    };
+
+    window.addEventListener('modeChanged', handleModeChange);
+    return () => window.removeEventListener('modeChanged', handleModeChange);
+  }, [user, allDocuments]);
 
   const fetchAllDocuments = async () => {
     try {
       const response = await documentsAPI.list();
-      setDocuments(response.data);
+      setAllDocuments(response.data);
+      // Filter and set display docs
+      setDocuments(filterDocumentsByMode(response.data, user.id));
     } catch (error) {
       toast({
         title: 'Failed to load documents',

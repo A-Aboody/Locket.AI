@@ -119,7 +119,55 @@ class EmailService:
         text_content = self._load_template('password_reset.txt', variables)
 
         return self._send_email(recipient_email, subject, text_content, html_content)
-    
+
+    def send_organization_invite(
+        self,
+        recipient_email: str,
+        organization_name: str,
+        inviter_name: str,
+        invite_code: str,
+        expiry_date: str
+    ) -> bool:
+        """
+        Send organization invitation email
+
+        Args:
+            recipient_email: Email address of the person being invited
+            organization_name: Name of the organization
+            inviter_name: Name of the person sending the invite
+            invite_code: Unique invitation code
+            expiry_date: Human-readable expiry date (e.g., "January 15, 2025")
+
+        Returns:
+            True if email sent successfully
+        """
+        if not self.enabled:
+            logger.warning("Email service disabled - cannot send organization invite")
+            return False
+
+        # Import config here to avoid circular import
+        from config import Config
+
+        # Generate magic link
+        magic_link = f"{Config.LANDING_PAGE_URL}/accept-invite?code={invite_code}"
+
+        subject = f"Join {organization_name} on {self.app_name}"
+
+        # Load templates with variables
+        variables = {
+            'app_name': self.app_name,
+            'organization_name': organization_name,
+            'inviter_name': inviter_name,
+            'invite_code': invite_code,
+            'magic_link': magic_link,
+            'expiry_date': expiry_date
+        }
+
+        html_content = self._load_template('organization_invite.html', variables)
+        text_content = self._load_template('organization_invite.txt', variables)
+
+        return self._send_email(recipient_email, subject, text_content, html_content)
+
     def _send_email(self, recipient: str, subject: str, text_content: str, html_content: str) -> bool:
         """
         Send email using SMTP

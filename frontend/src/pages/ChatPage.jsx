@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Box,
@@ -51,7 +51,6 @@ import {
 } from 'react-icons/fi';
 import AppHeader from '../custom_components/AppHeader';
 import NavTabs from '../custom_components/NavTabs';
-import PageTransition from '../custom_components/PageTransition';
 import { chatsAPI, apiUtils } from '../utils/api';
 
 const ChatPage = () => {
@@ -69,6 +68,8 @@ const ChatPage = () => {
   const [isLoadingChats, setIsLoadingChats] = useState(true);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isCitationsPanelOpen, setIsCitationsPanelOpen] = useState(true);
+  const [streamingMessage, setStreamingMessage] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
 
   const { isOpen: isRenameOpen, onOpen: onRenameOpen, onClose: onRenameClose } = useDisclosure();
   const [renameValue, setRenameValue] = useState('');
@@ -140,13 +141,14 @@ const ChatPage = () => {
       const response = await chatsAPI.create({ title: null });
       const newChat = response.data;
 
-      setChats([newChat, ...chats]);
-      navigate(`/chat/${newChat.id}`);
+      // Update state without reload
+      setChats(prevChats => [newChat, ...prevChats]);
+      navigate(`/chat/${newChat.id}`, { replace: true });
 
       toast({
         title: 'New chat created',
         status: 'success',
-        duration: 2000,
+        duration: 1000,
         isClosable: true,
       });
     } catch (error) {
@@ -161,6 +163,32 @@ const ChatPage = () => {
     }
   };
 
+  // Typing effect function - word-by-word for proper formatting
+  const typeMessage = useCallback((fullMessage, callback) => {
+    setIsStreaming(true);
+    setStreamingMessage('');
+
+    const words = fullMessage.split(' ');
+    let currentIndex = 0;
+
+    const typeInterval = setInterval(() => {
+      if (currentIndex < words.length) {
+        setStreamingMessage(prev => {
+          const newText = prev + (currentIndex > 0 ? ' ' : '') + words[currentIndex];
+          return newText;
+        });
+        currentIndex++;
+      } else {
+        clearInterval(typeInterval);
+        setIsStreaming(false);
+        setStreamingMessage('');
+        if (callback) callback();
+      }
+    }, 30); // Speed of typing (30ms per word for smooth effect)
+
+    return () => clearInterval(typeInterval);
+  }, []);
+
   const sendMessage = async () => {
     if (!messageInput.trim() || !currentChat) return;
 
@@ -168,23 +196,65 @@ const ChatPage = () => {
     setMessageInput('');
     setIsSending(true);
 
+    // Optimistically add user message to UI
+    const tempUserMessage = {
+      id: Date.now(),
+      role: 'user',
+      content: userMessage,
+      created_at: new Date().toISOString(),
+      citations: []
+    };
+    setMessages(prev => [...prev, tempUserMessage]);
+
     try {
       const response = await chatsAPI.sendMessage(currentChat.id, userMessage);
 
-      // Add user message and AI response to the message list
-      await loadChat(currentChat.id);
+      // Remove temp user message and add AI response with typing effect
+      setMessages(prev => prev.filter(m => m.id !== tempUserMessage.id));
 
-      // Update chat in list with new timestamp
-      await loadChats();
+      // Add user message immediately
+      const userMsg = {
+        id: response.data.id - 1,
+        role: 'user',
+        content: userMessage,
+        created_at: new Date().toISOString(),
+        citations: []
+      };
 
-      toast({
-        title: 'Message sent',
-        status: 'success',
-        duration: 1000,
-        isClosable: true,
+      setMessages(prev => [...prev, userMsg]);
+
+      // Type the AI response
+      typeMessage(response.data.content, () => {
+        // After typing is complete, add the actual message
+        setMessages(prev => [...prev, response.data]);
+
+        // Update chat in list silently (no reload)
+        setChats(prevChats => {
+          const updatedChats = prevChats.map(c =>
+            c.id === currentChat.id
+              ? {
+                  ...c,
+                  message_count: (c.message_count || 0) + 2,
+                  last_message_preview: response.data.content.substring(0, 100),
+                  last_message_at: response.data.created_at,
+                  updated_at: new Date().toISOString()
+                }
+              : c
+          );
+          return updatedChats.sort((a, b) =>
+            new Date(b.updated_at) - new Date(a.updated_at)
+          );
+        });
+
+        setCurrentChat(prev => ({
+          ...prev,
+          message_count: (prev.message_count || 0) + 2
+        }));
       });
     } catch (error) {
       console.error('Failed to send message:', error);
+      // Remove temp message on error
+      setMessages(prev => prev.filter(m => m.id !== tempUserMessage.id));
       toast({
         title: 'Error sending message',
         description: apiUtils.handleError(error),
@@ -212,12 +282,13 @@ const ChatPage = () => {
     try {
       await chatsAPI.delete(id);
 
-      setChats(chats.filter(chat => chat.id !== id));
+      // Update state without page reload
+      setChats(prevChats => prevChats.filter(chat => chat.id !== id));
 
       if (currentChat?.id === id) {
         setCurrentChat(null);
         setMessages([]);
-        navigate('/chat');
+        navigate('/chat', { replace: true });
       }
 
       toast({
@@ -242,12 +313,13 @@ const ChatPage = () => {
     try {
       await chatsAPI.archive(id);
 
-      setChats(chats.filter(chat => chat.id !== id));
+      // Update state without page reload
+      setChats(prevChats => prevChats.filter(chat => chat.id !== id));
 
       if (currentChat?.id === id) {
         setCurrentChat(null);
         setMessages([]);
-        navigate('/chat');
+        navigate('/chat', { replace: true });
       }
 
       toast({
@@ -280,13 +352,13 @@ const ChatPage = () => {
     try {
       await chatsAPI.rename(renamingChatId, renameValue.trim());
 
-      // Update local state
-      setChats(chats.map(chat =>
+      // Update local state without reload
+      setChats(prevChats => prevChats.map(chat =>
         chat.id === renamingChatId ? { ...chat, title: renameValue.trim() } : chat
       ));
 
       if (currentChat?.id === renamingChatId) {
-        setCurrentChat({ ...currentChat, title: renameValue.trim() });
+        setCurrentChat(prev => ({ ...prev, title: renameValue.trim() }));
       }
 
       onRenameClose();
@@ -345,14 +417,13 @@ const ChatPage = () => {
   };
 
   return (
-    <PageTransition>
-      <Box minH="100vh">
-        <AppHeader
-          user={user}
-          onLogout={handleLogout}
-          onSettings={handleSettings}
-        />
-        <NavTabs />
+    <Box minH="100vh">
+      <AppHeader
+        user={user}
+        onLogout={handleLogout}
+        onSettings={handleSettings}
+      />
+      <NavTabs />
 
         <Container maxW="container.2xl" py={6}>
           <Flex gap={4} h="calc(100vh - 200px)">
@@ -629,8 +700,14 @@ const ChatPage = () => {
                                   w="full"
                                   border="1px"
                                   borderColor={message.role === 'user' ? 'accent.500' : 'primary.600'}
+                                  sx={{
+                                    '& p': { marginBottom: '0.5rem' },
+                                    '& p:last-child': { marginBottom: 0 }
+                                  }}
                                 >
-                                  <Text whiteSpace="pre-wrap" color="gray.100">{message.content}</Text>
+                                  <Text whiteSpace="pre-wrap" color="gray.100" lineHeight="1.6">
+                                    {message.content}
+                                  </Text>
                                 </Box>
 
                                 {/* Citations */}
@@ -675,43 +752,122 @@ const ChatPage = () => {
                             </HStack>
                           </Box>
                         ))}
+
+                        {/* Streaming message (typing effect) */}
+                        {isStreaming && streamingMessage && (
+                          <Box>
+                            <HStack align="start" spacing={3}>
+                              <Avatar
+                                size="sm"
+                                name="Locket"
+                                bg="primary.600"
+                                icon={<FiMessageSquare />}
+                              />
+                              <VStack align="start" flex={1} spacing={2}>
+                                <HStack>
+                                  <Text fontWeight="bold" fontSize="sm" color="gray.100">
+                                    Locket
+                                  </Text>
+                                  <Spinner size="xs" color="accent.500" />
+                                </HStack>
+                                <Box
+                                  bg="primary.800"
+                                  p={3}
+                                  borderRadius="md"
+                                  w="full"
+                                  border="1px"
+                                  borderColor="primary.600"
+                                  sx={{
+                                    '& p': { marginBottom: '0.5rem' },
+                                    '& p:last-child': { marginBottom: 0 }
+                                  }}
+                                >
+                                  <Text
+                                    whiteSpace="pre-wrap"
+                                    color="gray.100"
+                                    lineHeight="1.6"
+                                    sx={{
+                                      wordBreak: 'break-word',
+                                      overflowWrap: 'break-word'
+                                    }}
+                                  >
+                                    {streamingMessage}
+                                    <Box
+                                      as="span"
+                                      display="inline-block"
+                                      w="2px"
+                                      h="1em"
+                                      bg="accent.500"
+                                      ml={1}
+                                      animation="blink 1s infinite"
+                                      sx={{
+                                        '@keyframes blink': {
+                                          '0%, 49%': { opacity: 1 },
+                                          '50%, 100%': { opacity: 0 },
+                                        },
+                                      }}
+                                    />
+                                  </Text>
+                                </Box>
+                              </VStack>
+                            </HStack>
+                          </Box>
+                        )}
+
                         <div ref={messagesEndRef} />
                       </VStack>
                     )}
                   </Box>
 
                   {/* Message Input */}
-                  <Box p={4} borderTop="1px" borderColor="primary.700">
-                    <HStack spacing={2}>
-                      <Textarea
-                        value={messageInput}
-                        onChange={(e) => setMessageInput(e.target.value)}
-                        onKeyPress={handleKeyPress}
-                        placeholder="Ask Locket a question..."
-                        size="sm"
-                        resize="none"
-                        rows={2}
-                        disabled={isSending}
-                        bg="primary.800"
-                        color="gray.100"
-                        border="1px"
-                        borderColor="primary.600"
-                        _placeholder={{ color: 'gray.500' }}
-                        _focus={{ borderColor: 'accent.500', boxShadow: '0 0 0 1px var(--chakra-colors-accent-500)' }}
-                      />
-                      <IconButton
-                        icon={isSending ? <Spinner size="sm" /> : <FiSend />}
-                        colorScheme="accent"
-                        onClick={sendMessage}
-                        isDisabled={!messageInput.trim() || isSending}
-                        aria-label="Send message"
-                        bg="accent.500"
-                        _hover={{ bg: 'accent.600' }}
-                      />
-                    </HStack>
-                    <Text fontSize="xs" color="gray.500" mt={2}>
-                      Press Enter to send, Shift+Enter for new line
-                    </Text>
+                  <Box p={4} borderTop="1px" borderColor="primary.700" bg="primary.900">
+                    <VStack spacing={2} align="stretch">
+                      <HStack spacing={2} align="end">
+                        <Textarea
+                          value={messageInput}
+                          onChange={(e) => setMessageInput(e.target.value)}
+                          onKeyPress={handleKeyPress}
+                          placeholder="Ask Locket a question..."
+                          size="md"
+                          resize="vertical"
+                          minH="40px"
+                          maxH="150px"
+                          disabled={isSending || isStreaming}
+                          bg="primary.800"
+                          color="gray.100"
+                          border="1px"
+                          borderColor="primary.600"
+                          borderRadius="lg"
+                          _placeholder={{ color: 'gray.500' }}
+                          _hover={{ borderColor: 'primary.500' }}
+                          _focus={{
+                            borderColor: 'accent.500',
+                            boxShadow: '0 0 0 1px var(--chakra-colors-accent-500)',
+                            outline: 'none'
+                          }}
+                          _disabled={{ opacity: 0.6, cursor: 'not-allowed' }}
+                          fontSize="sm"
+                          py={3}
+                          px={4}
+                        />
+                        <IconButton
+                          icon={isSending || isStreaming ? <Spinner size="sm" /> : <FiSend />}
+                          colorScheme="accent"
+                          onClick={sendMessage}
+                          isDisabled={!messageInput.trim() || isSending || isStreaming}
+                          aria-label="Send message"
+                          bg="accent.500"
+                          _hover={{ bg: 'accent.600', transform: 'scale(1.05)' }}
+                          _active={{ transform: 'scale(0.95)' }}
+                          transition="all 0.2s"
+                          size="lg"
+                          borderRadius="lg"
+                        />
+                      </HStack>
+                      <Text fontSize="xs" color="gray.500">
+                        Press Enter to send • Shift+Enter for new line
+                      </Text>
+                    </VStack>
                   </Box>
                 </>
               )}
@@ -862,7 +1018,6 @@ const ChatPage = () => {
             )}
           </Flex>
         </Container>
-      </Box>
 
       {/* Rename Modal */}
       <Modal isOpen={isRenameOpen} onClose={onRenameClose}>
@@ -896,7 +1051,7 @@ const ChatPage = () => {
           </ModalFooter>
         </ModalContent>
       </Modal>
-    </PageTransition>
+    </Box>
   );
 };
 

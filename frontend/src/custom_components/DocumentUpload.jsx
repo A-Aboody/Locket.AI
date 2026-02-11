@@ -18,6 +18,7 @@ import {
 } from '@chakra-ui/react';
 import { FiUpload, FiUsers } from 'react-icons/fi';
 import { documentsAPI, userGroupsAPI, usersAPI, apiUtils } from '../utils/api';
+import { isPersonalMode as checkIsPersonalMode } from '../utils/modeUtils';
 
 // Import components
 import FileUploadArea from './document_upload/FileUploadArea';
@@ -27,20 +28,39 @@ import UploadButton from './document_upload/UploadButton';
 import GroupSelectionModal from './document_upload/GroupSelectionModal';
 
 const DocumentUpload = ({ onUploadSuccess }) => {
+  // Get current user for organization visibility
+  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+  const [isPersonalMode, setIsPersonalMode] = useState(checkIsPersonalMode());
+
   const [selectedFile, setSelectedFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
-  const [visibility, setVisibility] = useState(null);
+  // In personal mode, default to 'private'; in organization mode, no default
+  const [visibility, setVisibility] = useState(isPersonalMode ? 'private' : null);
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [userGroups, setUserGroups] = useState([]);
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [uploadError, setUploadError] = useState(null);
-  
+
   const fileInputRef = useRef(null);
   const toast = useToast();
   const maxSizeMB = 100;
+
+  // Listen for mode changes and reset visibility
+  useEffect(() => {
+    const handleModeChange = () => {
+      const newMode = checkIsPersonalMode();
+      setIsPersonalMode(newMode);
+      // Reset visibility to appropriate default for new mode
+      setVisibility(newMode ? 'private' : null);
+      setSelectedGroup(null);
+    };
+
+    window.addEventListener('modeChanged', handleModeChange);
+    return () => window.removeEventListener('modeChanged', handleModeChange);
+  }, []);
 
   useEffect(() => {
     if (visibility === 'group') {
@@ -213,10 +233,11 @@ const DocumentUpload = ({ onUploadSuccess }) => {
       // Reset form exactly like original version
       setSelectedFile(null);
       setUploadProgress(0);
-      setVisibility(null);
+      // Reset to 'private' in personal mode, null in organization mode
+      setVisibility(isPersonalMode ? 'private' : null);
       setSelectedGroup(null);
       setUploadError(null);
-      
+
       // Clear file input like original version
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
@@ -243,7 +264,8 @@ const DocumentUpload = ({ onUploadSuccess }) => {
   const handleCancel = () => {
     setSelectedFile(null);
     setUploadProgress(0);
-    setVisibility(null);
+    // Reset to 'private' in personal mode, null in organization mode
+    setVisibility(isPersonalMode ? 'private' : null);
     setSelectedGroup(null);
     setUploadError(null);
     // Clear file input like original version
@@ -307,7 +329,9 @@ const DocumentUpload = ({ onUploadSuccess }) => {
                 Upload Document
               </Text>
               <Text fontSize="sm" color="gray.400">
-                Share files with your team or keep them private
+                {isPersonalMode
+                  ? 'Upload and securely store your personal documents'
+                  : 'Share files with your team or keep them private'}
               </Text>
             </VStack>
           </HStack>
@@ -345,27 +369,33 @@ const DocumentUpload = ({ onUploadSuccess }) => {
 
           {selectedFile && (
             <>
-              <Divider borderColor="primary.600" />
+              {/* Only show visibility settings in organization mode */}
+              {!isPersonalMode && (
+                <>
+                  <Divider borderColor="primary.600" />
 
-              {/* Step 2: Set Visibility */}
-              <VisibilitySelector
-                visibility={visibility}
-                selectedGroup={selectedGroup}
-                uploading={uploading}
-                onVisibilityChange={handleVisibilityChange}
-                onGroupSelect={handleGroupSelect}
-              />
+                  {/* Step 2: Set Visibility */}
+                  <VisibilitySelector
+                    visibility={visibility}
+                    selectedGroup={selectedGroup}
+                    uploading={uploading}
+                    onVisibilityChange={handleVisibilityChange}
+                    onGroupSelect={handleGroupSelect}
+                    currentUser={currentUser}
+                  />
 
-              {/* Group Selection */}
-              <GroupSelection
-                visibility={visibility}
-                selectedGroup={selectedGroup}
-                userGroups={userGroups}
-                loadingGroups={loadingGroups}
-                uploading={uploading}
-                onOpenGroupModal={openGroupModal}
-                onCreateGroup={handleCreateGroup}
-              />
+                  {/* Group Selection */}
+                  <GroupSelection
+                    visibility={visibility}
+                    selectedGroup={selectedGroup}
+                    userGroups={userGroups}
+                    loadingGroups={loadingGroups}
+                    uploading={uploading}
+                    onOpenGroupModal={openGroupModal}
+                    onCreateGroup={handleCreateGroup}
+                  />
+                </>
+              )}
 
               <Divider borderColor="primary.600" />
 

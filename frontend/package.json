@@ -1,9 +1,9 @@
 {
-  "name": "doc-ai-agent",
+  "name": "locket.ai",
   "private": true,
   "version": "1.0.0",
-  "description": "Document Retrieval System - Desktop Application",
-  "author": "seniordesign4",
+  "description": "Locket.AI - AI-Powered Document Retrieval",
+  "author": "Locket.AI, Inc.",
   "main": "electron/main.js",
   "type": "commonjs",
   "scripts": {
@@ -50,12 +50,13 @@
     "eslint-plugin-react-refresh": "^0.4.22",
     "globals": "^16.4.0",
     "vite": "^7.1.7",
+    "vite-plugin-static-copy": "^3.1.4",
     "vite-tsconfig-paths": "^5.1.4",
     "wait-on": "^9.0.1"
   },
   "build": {
     "appId": "com.yourteam.documentretrieval",
-    "productName": "Document Retrieval System",
+    "productName": "Locket.AI",
     "directories": {
       "output": "release"
     },
@@ -76,29 +77,66 @@
           "!.env",
           "!uploads"
         ]
+      },
+      {
+        "from": "../docker-compose.yml",
+        "to": "docker-compose.yml"
+      },
+      {
+        "from": "../.env.docker",
+        "to": ".env.docker"
       }
     ],
     "win": {
       "target": [
         "nsis"
       ],
-      "icon": "public/icon.ico"
+      "fileAssociations": [
+        {
+          "ext": "pdf",
+          "name": "PDF Document",
+          "description": "PDF Document",
+          "role": "Viewer"
+        }
+      ],
+      "protocols": [
+        {
+          "name": "Locket.AI Deep Link",
+          "schemes": [
+            "locket"
+          ]
+        }
+      ]
     },
     "mac": {
       "target": [
         "dmg",
         "zip"
       ],
-      "icon": "public/icon.icns",
-      "category": "public.app-category.productivity"
+      "category": "public.app-category.productivity",
+      "protocols": [
+        {
+          "name": "Locket.AI Deep Link",
+          "schemes": [
+            "locket"
+          ]
+        }
+      ]
     },
     "linux": {
       "target": [
         "AppImage",
         "deb"
       ],
-      "icon": "public/icon.png",
-      "category": "Office"
+      "category": "Office",
+      "protocols": [
+        {
+          "name": "Locket.AI Deep Link",
+          "schemes": [
+            "locket"
+          ]
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,

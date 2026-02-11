@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Accept Invitation - Locket.AI</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+                'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+                sans-serif;
+            background: linear-gradient(135deg, #1a1f2e 0%, #0f1419 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 600px;
+            width: 100%;
+            background: #1e2736;
+            border-radius: 16px;
+            padding: 48px 32px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            border: 1px solid #2d3748;
+            text-align: center;
+        }
+
+        .logo {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        .brand {
+            font-size: 32px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
+        }
+
+        .tagline {
+            color: #a0aec0;
+            font-size: 14px;
+            margin-bottom: 32px;
+            font-weight: 500;
+        }
+
+        .divider {
+            height: 1px;
+            background: #2d3748;
+            margin: 32px 0;
+        }
+
+        .status-icon {
+            font-size: 64px;
+            margin-bottom: 24px;
+        }
+
+        h1 {
+            font-size: 28px;
+            margin-bottom: 16px;
+            color: #ffffff;
+        }
+
+        .subtitle {
+            color: #a0aec0;
+            font-size: 16px;
+            line-height: 1.6;
+            margin-bottom: 32px;
+        }
+
+        .invite-code {
+            background: #0f1419;
+            border: 1px solid #2d3748;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 32px;
+        }
+
+        .invite-code-label {
+            color: #a0aec0;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .invite-code-value {
+            font-family: 'Courier New', monospace;
+            font-size: 20px;
+            font-weight: 600;
+            color: #667eea;
+            letter-spacing: 2px;
+        }
+
+        .status-message {
+            background: #2d3748;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-align: left;
+        }
+
+        .status-message.info {
+            background: rgba(66, 153, 225, 0.1);
+            border: 1px solid rgba(66, 153, 225, 0.3);
+        }
+
+        .status-message.success {
+            background: rgba(72, 187, 120, 0.1);
+            border: 1px solid rgba(72, 187, 120, 0.3);
+        }
+
+        .status-message.warning {
+            background: rgba(237, 137, 54, 0.1);
+            border: 1px solid rgba(237, 137, 54, 0.3);
+        }
+
+        .status-message-icon {
+            font-size: 24px;
+            flex-shrink: 0;
+        }
+
+        .status-message-text {
+            font-size: 14px;
+            line-height: 1.5;
+            color: #cbd5e0;
+        }
+
+        .button {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 14px 28px;
+            font-size: 16px;
+            font-weight: 600;
+            text-decoration: none;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: none;
+            font-family: inherit;
+        }
+
+        .button-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .button-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(102, 126, 234, 0.4);
+        }
+
+        .button-secondary {
+            background: #2d3748;
+            color: #e2e8f0;
+            border: 1px solid #4a5568;
+        }
+
+        .button-secondary:hover {
+            background: #3d4758;
+        }
+
+        .download-section {
+            display: none;
+            margin-top: 32px;
+        }
+
+        .download-section.show {
+            display: block;
+        }
+
+        .download-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            justify-content: center;
+            margin-top: 16px;
+        }
+
+        .platform-button {
+            flex: 1;
+            min-width: 140px;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        @media (max-width: 640px) {
+            .container {
+                padding: 32px 24px;
+            }
+
+            h1 {
+                font-size: 24px;
+            }
+
+            .brand {
+                font-size: 28px;
+            }
+
+            .platform-button {
+                min-width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">🔐</div>
+        <div class="brand">Locket.AI</div>
+        <div class="tagline">Lock it with Locket</div>
+
+        <div class="divider"></div>
+
+        <div id="content">
+            <!-- Loading State -->
+            <div id="loading-state">
+                <div class="status-icon">⏳</div>
+                <h1>Opening Locket.AI...</h1>
+                <p class="subtitle">
+                    <span class="spinner"></span>
+                </p>
+            </div>
+
+            <!-- Success State -->
+            <div id="success-state" class="hidden">
+                <div class="status-icon">✅</div>
+                <h1>Opening in Locket.AI</h1>
+                <p class="subtitle">
+                    The Locket.AI app should open automatically. If it doesn't, click the button below.
+                </p>
+
+                <div id="invite-code-display" class="invite-code">
+                    <div class="invite-code-label">Invitation Code</div>
+                    <div class="invite-code-value" id="code-display"></div>
+                </div>
+
+                <button onclick="retryOpenApp()" class="button button-primary">
+                    🚀 Open Locket.AI
+                </button>
+
+                <div class="download-section show">
+                    <div class="divider"></div>
+                    <h2 style="font-size: 18px; margin-bottom: 12px; color: #cbd5e0;">Don't have Locket.AI yet?</h2>
+                    <p style="color: #a0aec0; font-size: 14px; margin-bottom: 16px;">
+                        Download the app to accept your invitation
+                    </p>
+                    <div class="download-buttons" id="download-buttons">
+                        <!-- Download buttons will be injected here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Error State -->
+            <div id="error-state" class="hidden">
+                <div class="status-icon">❌</div>
+                <h1>Invalid Invitation</h1>
+                <p class="subtitle">
+                    The invitation link appears to be invalid or expired. Please contact the person who sent you the invitation.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Get invite code from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const inviteCode = urlParams.get('code');
+
+        // Detect platform
+        function detectPlatform() {
+            const userAgent = navigator.userAgent.toLowerCase();
+            if (userAgent.indexOf('win') !== -1) return 'windows';
+            if (userAgent.indexOf('mac') !== -1) return 'macos';
+            if (userAgent.indexOf('linux') !== -1) return 'linux';
+            return 'unknown';
+        }
+
+        // Create download buttons
+        function createDownloadButtons() {
+            const platform = detectPlatform();
+            const downloadButtons = document.getElementById('download-buttons');
+
+            const platforms = [
+                { name: 'Windows', icon: '🪟', url: '#', id: 'windows' },
+                { name: 'macOS', icon: '🍎', url: '#', id: 'macos' },
+                { name: 'Linux', icon: '🐧', url: '#', id: 'linux' }
+            ];
+
+            // Sort to show detected platform first
+            platforms.sort((a, b) => {
+                if (a.id === platform) return -1;
+                if (b.id === platform) return 1;
+                return 0;
+            });
+
+            downloadButtons.innerHTML = platforms.map(p => `
+                <a href="${p.url}" class="button button-secondary platform-button">
+                    ${p.icon} ${p.name}
+                </a>
+            `).join('');
+        }
+
+        // Try to open the app
+        function openApp(code) {
+            const deepLink = `locket://invite/${code}`;
+            window.location.href = deepLink;
+
+            // Try using an iframe as fallback
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.src = deepLink;
+            document.body.appendChild(iframe);
+
+            setTimeout(() => {
+                document.body.removeChild(iframe);
+            }, 1000);
+        }
+
+        // Retry opening the app
+        function retryOpenApp() {
+            if (inviteCode) {
+                openApp(inviteCode);
+            }
+        }
+
+        // Initialize
+        function init() {
+            const loadingState = document.getElementById('loading-state');
+            const successState = document.getElementById('success-state');
+            const errorState = document.getElementById('error-state');
+            const codeDisplay = document.getElementById('code-display');
+
+            if (!inviteCode || inviteCode.trim() === '') {
+                // No invite code provided
+                loadingState.classList.add('hidden');
+                errorState.classList.remove('hidden');
+                return;
+            }
+
+            // Display the invite code
+            codeDisplay.textContent = inviteCode;
+
+            // Try to open the app
+            openApp(inviteCode);
+
+            // Show success state after a short delay
+            setTimeout(() => {
+                loadingState.classList.add('hidden');
+                successState.classList.remove('hidden');
+                createDownloadButtons();
+            }, 1500);
+        }
+
+        // Run on page load
+        window.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>

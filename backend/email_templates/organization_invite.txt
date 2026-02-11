@@ -1,0 +1,45 @@
+═══════════════════════════════════════════════════════════
+
+  {{app_name}}
+  Lock it with Locket
+
+═══════════════════════════════════════════════════════════
+
+🎉 YOU'VE BEEN INVITED!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Hello,
+
+{{inviter_name}} has invited you to join their organization on
+{{app_name}}.
+
+ORGANIZATION
+─────────────────────────────────────────────────────────────
+    {{organization_name}}
+    Invited by {{inviter_name}}
+─────────────────────────────────────────────────────────────
+
+By accepting this invitation, you'll be able to collaborate with
+your team, share documents securely, and unlock powerful AI-driven
+document intelligence features.
+
+ACCEPT INVITATION
+─────────────────────────────────────────────────────────────
+Click or copy this link into your browser:
+
+{{magic_link}}
+
+─────────────────────────────────────────────────────────────
+
+⚠ IMPORTANT
+This invitation expires on {{expiry_date}}
+Accept the invitation before it expires to join the organization.
+
+Having trouble? Copy and paste the link above into your web browser.
+
+If you didn't expect this invitation or don't want to join, you can
+safely ignore this email.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+© 2025 {{app_name}}. All rights reserved.
+Privacy-focused document intelligence platform

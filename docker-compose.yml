@@ -65,8 +65,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ollama:
-        condition: service_healthy
+      # Ollama is optional when using OpenRouter
+      # ollama:
+      #   condition: service_healthy
     networks:
       - doc-retrieval-network
     healthcheck:

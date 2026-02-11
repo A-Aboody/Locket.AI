@@ -45,10 +45,10 @@ const FileUploadArea = ({
   return (
     <Box>
       <HStack mb={3} spacing={2}>
-        <Box 
-          w={6} 
-          h={6} 
-          rounded="full" 
+        <Box
+          w={6}
+          h={6}
+          rounded="full"
           bg={selectedFile ? 'accent.500' : 'primary.700'}
           display="flex"
           alignItems="center"
@@ -58,7 +58,7 @@ const FileUploadArea = ({
           color="white"
           transition="all 0.3s"
         >
-          {selectedFile ? <FiCheck size={14} /> : '1'}
+          {selectedFile ? <FiCheck size={14} /> : <FiFile size={14} />}
         </Box>
         <Text color="gray.300" fontWeight="medium">
           Select File

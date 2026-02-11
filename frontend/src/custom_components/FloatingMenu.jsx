@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Box,
   IconButton,
@@ -10,11 +10,15 @@ import {
 import { FiMenu, FiUser, FiSettings, FiLogOut, FiUsers } from 'react-icons/fi';
 import { useRef } from 'react';
 import UserGroupsModal from './UserGroupsModal';
+import { canSwitchModes } from '../utils/modeUtils';
 
 const FloatingMenu = ({ onProfile, onSettings, onLogout, onViewDocument }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [showUserGroups, setShowUserGroups] = useState(false);
   const ref = useRef();
+
+  // Check if user is in an organization (can manage groups)
+  const userInOrganization = canSwitchModes();
 
   useOutsideClick({
     ref: ref,
@@ -82,20 +86,23 @@ const FloatingMenu = ({ onProfile, onSettings, onLogout, onViewDocument }) => {
                 Profile
               </Button>
 
-              <Button
-                leftIcon={<FiUsers />}
-                onClick={handleUserGroups}
-                w="full"
-                justifyContent="flex-start"
-                variant="ghost"
-                color="gray.200"
-                _hover={{
-                  bg: 'accent.500',
-                  color: 'white',
-                }}
-              >
-                Manage Groups
-              </Button>
+              {/* Only show Manage Groups for users in an organization */}
+              {userInOrganization && (
+                <Button
+                  leftIcon={<FiUsers />}
+                  onClick={handleUserGroups}
+                  w="full"
+                  justifyContent="flex-start"
+                  variant="ghost"
+                  color="gray.200"
+                  _hover={{
+                    bg: 'accent.500',
+                    color: 'white',
+                  }}
+                >
+                  Manage Groups
+                </Button>
+              )}
 
               <Button
                 leftIcon={<FiSettings />}

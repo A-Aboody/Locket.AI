@@ -27,11 +27,14 @@ import AppHeader from '../custom_components/AppHeader';
 import NavTabs from '../custom_components/NavTabs';
 import PageTransition from '../custom_components/PageTransition';
 import { searchAPI, documentsAPI } from '../utils/api';
+import { filterDocumentsByMode } from '../utils/documentFilters';
 
 const HomePage = () => {
   const [user, setUser] = useState(null);
-  const [recentDocs, setRecentDocs] = useState([]);
-  const [myUploadsDocs, setMyUploadsDocs] = useState([]);
+  const [allRecentDocs, setAllRecentDocs] = useState([]); // Store all docs from backend
+  const [allMyUploadsDocs, setAllMyUploadsDocs] = useState([]); // Store all docs from backend
+  const [recentDocs, setRecentDocs] = useState([]); // Filtered docs for display
+  const [myUploadsDocs, setMyUploadsDocs] = useState([]); // Filtered docs for display
   const [viewingDocumentId, setViewingDocumentId] = useState(null);
   const [previewDocumentId, setPreviewDocumentId] = useState(null);
   const [viewMode, setViewMode] = useState(localStorage.getItem('documentViewMode') || 'card');
@@ -50,24 +53,42 @@ const HomePage = () => {
     if (storedUser) {
       const userData = JSON.parse(storedUser);
       setUser(userData);
-      fetchRecentActivity();
-      fetchMyUploads(userData.username);
+      fetchRecentActivity(userData.id);
+      fetchMyUploads(userData.id);
     }
   }, []);
 
-  const fetchRecentActivity = async () => {
+  // Listen for mode changes and re-filter documents
+  useEffect(() => {
+    const handleModeChange = () => {
+      if (user) {
+        // Re-filter documents when mode changes
+        setRecentDocs(filterDocumentsByMode(allRecentDocs, user.id));
+        setMyUploadsDocs(filterDocumentsByMode(allMyUploadsDocs, user.id));
+      }
+    };
+
+    window.addEventListener('modeChanged', handleModeChange);
+    return () => window.removeEventListener('modeChanged', handleModeChange);
+  }, [user, allRecentDocs, allMyUploadsDocs]);
+
+  const fetchRecentActivity = async (userId) => {
     try {
-      const response = await documentsAPI.list({ limit: 6 });
-      setRecentDocs(response.data);
+      const response = await documentsAPI.list({ limit: 100 });
+      setAllRecentDocs(response.data);
+      // Filter and set display docs
+      setRecentDocs(filterDocumentsByMode(response.data, userId).slice(0, 6));
     } catch (error) {
       console.error('Failed to fetch recent activity:', error);
     }
   };
 
-  const fetchMyUploads = async (username) => {
+  const fetchMyUploads = async (userId) => {
     try {
-      const response = await documentsAPI.listMyDocuments({ limit: 6 });
-      setMyUploadsDocs(response.data);
+      const response = await documentsAPI.listMyDocuments({ limit: 100 });
+      setAllMyUploadsDocs(response.data);
+      // Filter and set display docs
+      setMyUploadsDocs(filterDocumentsByMode(response.data, userId).slice(0, 6));
     } catch (error) {
       console.error('Failed to fetch user uploads:', error);
     }

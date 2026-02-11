@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -16,8 +16,19 @@ import {
   useToast,
   Divider,
   Icon,
+  AlertDialog,
+  AlertDialogBody,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogContent,
+  AlertDialogOverlay,
+  useDisclosure,
+  Alert,
+  AlertIcon,
+  AlertTitle,
+  AlertDescription,
 } from '@chakra-ui/react';
-import { FiArrowLeft, FiEye, FiEyeOff, FiLock } from 'react-icons/fi';
+import { FiArrowLeft, FiEye, FiEyeOff, FiLock, FiUsers, FiChevronRight, FiAlertTriangle } from 'react-icons/fi';
 import AppHeader from '../custom_components/AppHeader';
 import PageTransition from '../custom_components/PageTransition';
 import { authAPI } from '../utils/api';
@@ -177,6 +188,62 @@ const SettingsPage = () => {
                     />
                   </FormControl>
                 </VStack>
+              </Box>
+
+              {/* Organization Section */}
+              <Box py={6}>
+                <Text color="white" fontSize="sm" fontWeight="600" mb={4}>
+                  Organization
+                </Text>
+
+                {user.organization_id ? (
+                  <Box
+                    bg="primary.800"
+                    border="1px"
+                    borderColor="primary.600"
+                    borderRadius="md"
+                    p={4}
+                    _hover={{ borderColor: 'accent.500', cursor: 'pointer' }}
+                    transition="all 0.2s"
+                    onClick={() => navigate('/organization-settings')}
+                  >
+                    <HStack justify="space-between">
+                      <HStack spacing={3}>
+                        <Icon as={FiUsers} color="accent.500" boxSize={5} />
+                        <VStack align="start" spacing={0}>
+                          <Text color="white" fontWeight="500" fontSize="sm">
+                            {user.organization_name || 'My Organization'}
+                          </Text>
+                          <Text color="gray.400" fontSize="xs">
+                            {user.org_role === 'admin' ? 'Administrator' : 'Member'}
+                          </Text>
+                        </VStack>
+                      </HStack>
+                      <Icon as={FiChevronRight} color="gray.500" boxSize={5} />
+                    </HStack>
+                  </Box>
+                ) : (
+                  <Box
+                    bg="primary.800"
+                    border="1px"
+                    borderColor="primary.600"
+                    borderRadius="md"
+                    p={4}
+                    textAlign="center"
+                  >
+                    <Text color="gray.400" fontSize="sm" mb={3}>
+                      You are not in an organization
+                    </Text>
+                    <Button
+                      size="sm"
+                      colorScheme="accent"
+                      leftIcon={<FiUsers />}
+                      onClick={() => navigate('/organization-onboarding')}
+                    >
+                      Create or Join Organization
+                    </Button>
+                  </Box>
+                )}
               </Box>
 
               {/* Change Password Section */}

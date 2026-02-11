@@ -19,7 +19,11 @@ import { formatFileSize, formatDate } from '../utils/formatters';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+// Use local worker file for Electron compatibility
+pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs/pdf.worker.min.mjs',
+  window.location.href
+).toString();
 
 const DocumentPreview = ({ documentId, onClose, onViewDocument }) => {
   const [document, setDocument] = useState(null);

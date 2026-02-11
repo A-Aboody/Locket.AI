@@ -317,6 +317,7 @@ const UserGroupsModal = ({ isOpen, onClose, onViewDocument }) => {
                     groups={userGroups}
                     groupStats={groupStats}
                     currentUserId={currentUser.id}
+                    currentUser={currentUser}
                     isLoading={loading}
                     onEdit={handleEditGroup}
                     onDelete={openDeleteDialog}

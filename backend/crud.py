@@ -4,12 +4,18 @@ CRUD operations for database
 """
 
 import bcrypt
+import secrets
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_, and_
-from database_models import User, UserRole, UserStatus, Document, UserGroup, UserGroupMember, VerificationCode, PasswordResetToken
+from database_models import (
+    User, UserRole, UserStatus, Document, UserGroup, UserGroupMember,
+    VerificationCode, PasswordResetToken, Organization, OrganizationMember,
+    OrganizationInvite, OrgRole
+)
 from schemas import UserRegister
 from typing import Optional, List, Dict
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from config import config
 
 
 def hash_password(password: str) -> str:
@@ -524,24 +530,43 @@ def get_visible_documents(db: Session, user_id: int, skip: int = 0, limit: int =
         UserGroupMember.user_id == user_id
     ).scalar_subquery()
 
+    # Build visibility conditions
+    conditions = [
+        # User's own private documents
+        and_(
+            Document.visibility == 'private',
+            Document.uploaded_by_id == user_id
+        ),
+        # Group documents where user is member
+        and_(
+            Document.visibility == 'group',
+            Document.user_group_id.in_(user_group_ids)
+        )
+    ]
+
+    # SECURITY: Public documents - only within same organization
+    if user.organization_id:
+        # User in organization: show public docs from their organization
+        conditions.append(
+            and_(
+                Document.visibility == 'public',
+                Document.organization_id == user.organization_id
+            )
+        )
+    else:
+        # User not in organization: show public docs with no organization (legacy)
+        conditions.append(
+            and_(
+                Document.visibility == 'public',
+                Document.organization_id.is_(None)
+            )
+        )
+
     return db.query(Document).options(
         joinedload(Document.uploaded_by),
         joinedload(Document.user_group)
     ).filter(
-        or_(
-            # Public documents
-            Document.visibility == 'public',
-            # User's own private documents
-            and_(
-                Document.visibility == 'private',
-                Document.uploaded_by_id == user_id
-            ),
-            # Group documents where user is member
-            and_(
-                Document.visibility == 'group',
-                Document.user_group_id.in_(user_group_ids)
-            )
-        )
+        or_(*conditions)
     ).order_by(
         Document.uploaded_at.desc()
     ).offset(skip).limit(limit).all()
@@ -638,34 +663,47 @@ def user_owns_document(db: Session, user_id: int, document_id: int) -> bool:
 def can_user_access_document(db: Session, user_id: int, document_id: int) -> bool:
     """
     Check if user can access a specific document based on visibility
-    
+
     Args:
         db: Database session
         user_id: User ID
         document_id: Document ID
-    
+
     Returns:
         True if user can access the document
     """
     document = get_document_by_id(db, document_id)
     if not document:
         return False
-    
+
     # Admin can access everything
     user = get_user_by_id(db, user_id)
     if user and user.role == UserRole.ADMIN:
         return True
-    
+
     # Check visibility
     if document.visibility == 'public':
+        # SECURITY: Public documents should only be visible within the same organization
+        # If document belongs to an organization, user must be in that organization
+        if document.organization_id:
+            if not user.organization_id:
+                return False
+            return user.organization_id == document.organization_id
+        # If document has no organization (legacy), it's truly public
         return True
-    
+
     if document.visibility == 'private':
         return document.uploaded_by_id == user_id
-    
+
     if document.visibility == 'group':
         return is_user_in_group(db, user_id, document.user_group_id)
-    
+
+    if document.visibility == 'organization':
+        # Must be in same organization
+        if not user.organization_id or not document.organization_id:
+            return False
+        return user.organization_id == document.organization_id
+
     return False
 
 
@@ -1092,3 +1130,546 @@ def get_user_statistics(db: Session, user_id: int) -> Dict:
         'account_created': user.created_at,
         'last_login': user.last_login
     }
+
+
+# ===================================
+# Organization CRUD Operations
+# ===================================
+
+def generate_invite_code(length: int = None) -> str:
+    """
+    Generate a secure random invite code
+
+    Args:
+        length: Length of invite code (defaults to config value)
+
+    Returns:
+        Random alphanumeric invite code
+    """
+    if length is None:
+        length = config.INVITE_CODE_LENGTH
+    return secrets.token_urlsafe(length)[:length]
+
+
+def create_organization(
+    db: Session,
+    name: str,
+    description: Optional[str],
+    created_by_id: int,
+    settings: Optional[Dict] = None
+) -> Organization:
+    """
+    Create a new organization
+
+    Args:
+        db: Database session
+        name: Organization name
+        description: Optional description
+        created_by_id: ID of user creating the organization
+        settings: Optional settings dict
+
+    Returns:
+        Created organization object
+    """
+    # Generate unique invite code
+    invite_code = generate_invite_code()
+    while db.query(Organization).filter(Organization.invite_code == invite_code).first():
+        invite_code = generate_invite_code()
+
+    # Default settings
+    if settings is None:
+        settings = {
+            "allow_member_invites": True,
+            "default_document_visibility": "private",
+            "require_admin_approval": False
+        }
+
+    org = Organization(
+        name=name,
+        description=description,
+        invite_code=invite_code,
+        created_by_id=created_by_id,
+        settings=settings
+    )
+
+    db.add(org)
+    db.commit()
+    db.refresh(org)
+
+    # Add creator as admin member
+    membership = OrganizationMember(
+        organization_id=org.id,
+        user_id=created_by_id,
+        role=OrgRole.ADMIN,
+        invited_by_id=None  # Creator wasn't invited
+    )
+    db.add(membership)
+
+    # Update user's organization_id
+    user = get_user_by_id(db, created_by_id)
+    user.organization_id = org.id
+
+    db.commit()
+    db.refresh(org)
+
+    return org
+
+
+def get_organization_by_id(db: Session, org_id: int) -> Optional[Organization]:
+    """Get organization by ID"""
+    return db.query(Organization).filter(Organization.id == org_id).first()
+
+
+def get_organization_by_name(db: Session, name: str) -> Optional[Organization]:
+    """Get organization by name"""
+    return db.query(Organization).filter(Organization.name == name).first()
+
+
+def get_organization_by_invite_code(db: Session, invite_code: str) -> Optional[Organization]:
+    """Get organization by invite code"""
+    return db.query(Organization).filter(Organization.invite_code == invite_code).first()
+
+
+def update_organization(
+    db: Session,
+    org_id: int,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    settings: Optional[Dict] = None
+) -> Optional[Organization]:
+    """
+    Update organization details
+
+    Args:
+        db: Database session
+        org_id: Organization ID
+        name: New name (optional)
+        description: New description (optional)
+        settings: New settings (optional)
+
+    Returns:
+        Updated organization or None if not found
+    """
+    org = get_organization_by_id(db, org_id)
+    if not org:
+        return None
+
+    if name is not None:
+        org.name = name
+    if description is not None:
+        org.description = description
+    if settings is not None:
+        org.settings = settings
+
+    db.commit()
+    db.refresh(org)
+
+    return org
+
+
+def delete_organization(db: Session, org_id: int) -> bool:
+    """
+    Delete organization (cascade deletes members and invites)
+
+    Args:
+        db: Database session
+        org_id: Organization ID
+
+    Returns:
+        True if deleted, False if not found
+    """
+    org = get_organization_by_id(db, org_id)
+    if not org:
+        return False
+
+    # Update all users in this org (set organization_id to NULL)
+    db.query(User).filter(User.organization_id == org_id).update(
+        {User.organization_id: None}
+    )
+
+    # Update all documents in this org (set organization_id to NULL, visibility to private)
+    db.query(Document).filter(Document.organization_id == org_id).update(
+        {Document.organization_id: None, Document.visibility: 'private'}
+    )
+
+    # Update all groups in this org (set organization_id to NULL)
+    db.query(UserGroup).filter(UserGroup.organization_id == org_id).update(
+        {UserGroup.organization_id: None}
+    )
+
+    db.delete(org)
+    db.commit()
+
+    return True
+
+
+# ===================================
+# Organization Member Operations
+# ===================================
+
+def get_organization_member(
+    db: Session,
+    org_id: int,
+    user_id: int
+) -> Optional[OrganizationMember]:
+    """Get organization membership for a specific user"""
+    return db.query(OrganizationMember).filter(
+        and_(
+            OrganizationMember.organization_id == org_id,
+            OrganizationMember.user_id == user_id
+        )
+    ).first()
+
+
+def get_organization_members(
+    db: Session,
+    org_id: int
+) -> List[OrganizationMember]:
+    """Get all members of an organization"""
+    return db.query(OrganizationMember).filter(
+        OrganizationMember.organization_id == org_id
+    ).options(joinedload(OrganizationMember.user)).all()
+
+
+def is_organization_admin(db: Session, org_id: int, user_id: int) -> bool:
+    """Check if user is an admin of the organization"""
+    member = get_organization_member(db, org_id, user_id)
+    return member is not None and member.role == OrgRole.ADMIN
+
+
+def is_organization_member(db: Session, org_id: int, user_id: int) -> bool:
+    """Check if user is a member of the organization"""
+    return get_organization_member(db, org_id, user_id) is not None
+
+
+def add_user_to_organization(
+    db: Session,
+    org_id: int,
+    user_id: int,
+    role: OrgRole = OrgRole.MEMBER,
+    invited_by_id: Optional[int] = None
+) -> Optional[OrganizationMember]:
+    """
+    Add user to organization
+
+    Args:
+        db: Database session
+        org_id: Organization ID
+        user_id: User ID to add
+        role: Role for the user (MEMBER or ADMIN)
+        invited_by_id: ID of user who invited this user
+
+    Returns:
+        Created membership or None if user already in another org
+    """
+    # Check if user already in an organization
+    user = get_user_by_id(db, user_id)
+    if not user:
+        return None
+
+    if user.organization_id is not None:
+        return None  # User already in an organization
+
+    # Create membership
+    membership = OrganizationMember(
+        organization_id=org_id,
+        user_id=user_id,
+        role=role,
+        invited_by_id=invited_by_id
+    )
+    db.add(membership)
+
+    # Update user's organization_id
+    user.organization_id = org_id
+
+    db.commit()
+    db.refresh(membership)
+
+    return membership
+
+
+def update_member_role(
+    db: Session,
+    org_id: int,
+    user_id: int,
+    new_role: OrgRole
+) -> Optional[OrganizationMember]:
+    """
+    Update organization member's role
+
+    Args:
+        db: Database session
+        org_id: Organization ID
+        user_id: User ID
+        new_role: New role (MEMBER or ADMIN)
+
+    Returns:
+        Updated membership or None if not found
+    """
+    member = get_organization_member(db, org_id, user_id)
+    if not member:
+        return None
+
+    member.role = new_role
+    db.commit()
+    db.refresh(member)
+
+    return member
+
+
+def remove_user_from_organization(
+    db: Session,
+    org_id: int,
+    user_id: int
+) -> bool:
+    """
+    Remove user from organization
+
+    Args:
+        db: Database session
+        org_id: Organization ID
+        user_id: User ID to remove
+
+    Returns:
+        True if removed, False if not found
+    """
+    member = get_organization_member(db, org_id, user_id)
+    if not member:
+        return False
+
+    # Update user's organization_id
+    user = get_user_by_id(db, user_id)
+    if user:
+        user.organization_id = None
+
+    # Update user's documents that are org-wide (set to private)
+    db.query(Document).filter(
+        and_(
+            Document.uploaded_by_id == user_id,
+            Document.visibility == 'organization'
+        )
+    ).update({Document.visibility: 'private', Document.organization_id: None})
+
+    db.delete(member)
+    db.commit()
+
+    return True
+
+
+def get_organization_admin_count(db: Session, org_id: int) -> int:
+    """Get count of admins in organization"""
+    return db.query(OrganizationMember).filter(
+        and_(
+            OrganizationMember.organization_id == org_id,
+            OrganizationMember.role == OrgRole.ADMIN
+        )
+    ).count()
+
+
+# ===================================
+# Organization Invite Operations
+# ===================================
+
+def create_organization_invite(
+    db: Session,
+    org_id: int,
+    created_by_id: int,
+    invite_type: str,
+    email: Optional[str] = None,
+    expires_at: Optional[datetime] = None,
+    max_uses: Optional[int] = None
+) -> OrganizationInvite:
+    """
+    Create organization invitation
+
+    Args:
+        db: Database session
+        org_id: Organization ID
+        created_by_id: ID of user creating invite
+        invite_type: 'code' or 'email'
+        email: Email address for email invitations
+        expires_at: Optional expiration datetime
+        max_uses: Optional maximum number of uses
+
+    Returns:
+        Created invitation
+    """
+    # Generate unique invite code
+    invite_code = generate_invite_code()
+    while db.query(OrganizationInvite).filter(
+        OrganizationInvite.invite_code == invite_code
+    ).first():
+        invite_code = generate_invite_code()
+
+    # Default expiration if not provided
+    if expires_at is None and invite_type == 'code':
+        expires_at = datetime.now(timezone.utc) + timedelta(
+            days=config.DEFAULT_INVITE_EXPIRY_DAYS
+        )
+
+    invite = OrganizationInvite(
+        organization_id=org_id,
+        invite_type=invite_type,
+        email=email,
+        invite_code=invite_code,
+        created_by_id=created_by_id,
+        expires_at=expires_at,
+        max_uses=max_uses
+    )
+
+    db.add(invite)
+    db.commit()
+    db.refresh(invite)
+
+    return invite
+
+
+def get_organization_invite_by_code(
+    db: Session,
+    invite_code: str
+) -> Optional[OrganizationInvite]:
+    """Get organization invite by code"""
+    return db.query(OrganizationInvite).filter(
+        OrganizationInvite.invite_code == invite_code
+    ).first()
+
+
+def get_organization_invite_by_id(
+    db: Session,
+    invite_id: int
+) -> Optional[OrganizationInvite]:
+    """Get organization invite by ID"""
+    return db.query(OrganizationInvite).filter(
+        OrganizationInvite.id == invite_id
+    ).first()
+
+
+def get_organization_invites(
+    db: Session,
+    org_id: int,
+    active_only: bool = True
+) -> List[OrganizationInvite]:
+    """
+    Get all invites for an organization
+
+    Args:
+        db: Database session
+        org_id: Organization ID
+        active_only: If True, only return active invites
+
+    Returns:
+        List of invitations
+    """
+    query = db.query(OrganizationInvite).filter(
+        OrganizationInvite.organization_id == org_id
+    )
+
+    if active_only:
+        query = query.filter(OrganizationInvite.is_active == True)
+
+    return query.all()
+
+
+def validate_and_use_invite(
+    db: Session,
+    invite_code: str,
+    user_id: int
+) -> tuple[bool, str, Optional[OrganizationInvite]]:
+    """
+    Validate invite code and mark as used
+
+    Args:
+        db: Database session
+        invite_code: Invite code to validate
+        user_id: ID of user trying to use invite
+
+    Returns:
+        Tuple of (success, message, invite)
+    """
+    invite = get_organization_invite_by_code(db, invite_code)
+
+    if not invite:
+        return False, "Invalid invite code", None
+
+    if not invite.is_active:
+        return False, "This invite has been revoked", None
+
+    # Check expiration
+    if invite.expires_at and invite.expires_at < datetime.now(timezone.utc):
+        return False, "This invite has expired", None
+
+    # Check max uses
+    if invite.max_uses and invite.used_count >= invite.max_uses:
+        return False, "This invite has reached its maximum uses", None
+
+    # Check if user already in an organization
+    user = get_user_by_id(db, user_id)
+    if user.organization_id:
+        return False, "You are already a member of an organization", None
+
+    # Increment used count
+    invite.used_count += 1
+    db.commit()
+
+    return True, "Success", invite
+
+
+def revoke_organization_invite(db: Session, invite_id: int) -> bool:
+    """
+    Revoke (deactivate) an organization invite
+
+    Args:
+        db: Database session
+        invite_id: Invite ID
+
+    Returns:
+        True if revoked, False if not found
+    """
+    invite = db.query(OrganizationInvite).filter(
+        OrganizationInvite.id == invite_id
+    ).first()
+
+    if not invite:
+        return False
+
+    invite.is_active = False
+    db.commit()
+
+    return True
+
+
+def get_visible_groups(db: Session, user_id: int) -> List[UserGroup]:
+    """
+    Get groups visible to a user
+    - Regular members see groups they're part of
+    - Organization admins see ALL groups in their organization
+
+    Args:
+        db: Database session
+        user_id: User ID
+
+    Returns:
+        List of visible groups
+    """
+    user = get_user_by_id(db, user_id)
+    if not user:
+        return []
+
+    # Get user's own groups (groups they're a member of)
+    user_groups = get_user_groups_for_user(db, user_id)
+
+    # If user is in an organization and is an admin, also get all org groups
+    if user.organization_id:
+        member = get_organization_member(db, user.organization_id, user_id)
+        if member and member.role == OrgRole.ADMIN:
+            # Get all groups in the organization
+            org_groups = db.query(UserGroup).filter(
+                UserGroup.organization_id == user.organization_id
+            ).all()
+
+            # Combine and deduplicate (using dict to preserve order and remove duplicates)
+            all_groups_dict = {g.id: g for g in user_groups}
+            all_groups_dict.update({g.id: g for g in org_groups})
+            return list(all_groups_dict.values())
+
+    return user_groups

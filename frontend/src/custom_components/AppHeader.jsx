@@ -1,14 +1,16 @@
 import {
   Box,
   Heading,
-  Text,
   HStack,
-  Badge,
   Icon,
 } from '@chakra-ui/react';
 import { FiLock } from 'react-icons/fi';
+import ModeSwitcher from './ModeSwitcher';
+import { canSwitchModes } from '../utils/modeUtils';
 
-const AppHeader = ({ user }) => {
+const AppHeader = ({ user, onModeChange }) => {
+  const showModeSwitcher = user && canSwitchModes();
+
   return (
     <Box
       bg="primary.800"
@@ -28,21 +30,8 @@ const AppHeader = ({ user }) => {
           </Heading>
         </HStack>
 
-        {user && (
-          <HStack spacing={4}>
-            <Text color="gray.400" fontSize="sm">
-              {user.username}
-            </Text>
-            <Badge
-              colorScheme={user.role === 'admin' ? 'purple' : 'accent'}
-              fontSize="xs"
-              px={3}
-              py={1}
-            >
-              {user.role}
-            </Badge>
-          </HStack>
-        )}
+        {/* Mode Switcher - only show for users in an organization */}
+        {showModeSwitcher && <ModeSwitcher onModeChange={onModeChange} />}
       </HStack>
     </Box>
   );

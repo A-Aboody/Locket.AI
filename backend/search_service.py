@@ -134,38 +134,54 @@ def fuzzy_match_score(query: str, text: str) -> float:
 
 def filename_match_score(query: str, filename: str) -> float:
     """
-    Calculate filename relevance score
-    
+    Calculate filename relevance score with better keyword extraction
+
     Args:
         query: Search query
         filename: Document filename
-    
+
     Returns:
         Filename match score between 0 and 1
     """
     if not query or not filename:
         return 0.0
-    
+
     query_lower = query.lower()
-    filename_lower = filename.lower()
-    
-    # Exact match
-    if query_lower == filename_lower:
+
+    # Clean filename: remove extension, numbers at start, underscores, special chars
+    filename_clean = filename.lower()
+    filename_clean = re.sub(r'\.(pdf|docx?|txt|xlsx?|pptx?)$', '', filename_clean)  # Remove extension
+    filename_clean = re.sub(r'^\d+[_\-\s]*', '', filename_clean)  # Remove leading numbers like "5008_"
+    filename_clean = re.sub(r'[_\-]', ' ', filename_clean)  # Replace underscores/hyphens with spaces
+
+    # Exact match after cleaning
+    if query_lower == filename_clean:
         return 1.0
-    
-    # Substring match
-    if query_lower in filename_lower:
-        return 0.8
-    
-    # Word overlap
-    query_words = set(query_lower.split())
-    filename_words = set(re.findall(r'\w+', filename_lower))
-    
+
+    # Substring match in cleaned filename
+    if query_lower in filename_clean or filename_clean in query_lower:
+        return 0.9
+
+    # Extract meaningful words (remove common stop words)
+    stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'is', 'are', 'was', 'were', 'of', 'to', 'in', 'for', 'on', 'what', 'when', 'where', 'who', 'how', 'why'}
+
+    query_words = set([w for w in query_lower.split() if w not in stop_words and len(w) > 2])
+    filename_words = set([w for w in filename_clean.split() if w not in stop_words and len(w) > 2])
+
     if not query_words:
         return 0.0
-    
+
+    # Calculate word overlap
     overlap = len(query_words.intersection(filename_words))
-    return float(overlap / len(query_words)) * 0.6
+
+    # High score if most query words are in filename
+    if overlap > 0:
+        overlap_ratio = overlap / len(query_words)
+        # Boost score significantly for filename matches
+        return min(1.0, overlap_ratio * 1.3)
+
+    # No overlap found
+    return 0.0
 
 
 def calculate_hybrid_score(
@@ -201,11 +217,12 @@ def calculate_hybrid_score(
     filename_score = filename_match_score(query, doc_filename)
     
     # Weighted combination
-    # Semantic: 50%, Keyword: 25%, Filename: 15%, Fuzzy: 10%
+    # Filename gets higher weight for better title/filename matching
+    # Semantic: 40%, Filename: 30%, Keyword: 20%, Fuzzy: 10%
     total_score = (
-        semantic_score * 0.50 +
-        keyword_score * 0.25 +
-        filename_score * 0.15 +
+        semantic_score * 0.40 +
+        filename_score * 0.30 +
+        keyword_score * 0.20 +
         fuzzy_score * 0.10
     )
     

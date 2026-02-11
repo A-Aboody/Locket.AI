@@ -35,6 +35,7 @@ const GroupCard = ({
   stats,
   isOwner,
   isMember,
+  isOrgAdmin,
   currentUserId,
   onEdit,
   onDelete,
@@ -147,6 +148,19 @@ const GroupCard = ({
                     Owner
                   </Badge>
                 )}
+                {isOrgAdmin && !isMember && (
+                  <Badge
+                    bg="blue.900"
+                    color="blue.300"
+                    fontSize="xs"
+                    px={1.5}
+                    py={0.5}
+                    rounded="sm"
+                    fontWeight="500"
+                  >
+                    Org Admin
+                  </Badge>
+                )}
               </HStack>
               {group.description && (
                 <Text color="gray.500" fontSize="sm" noOfLines={1}>
@@ -203,7 +217,7 @@ const GroupCard = ({
                   </Tooltip>
                 </>
               )}
-              {!isOwner && (
+              {!isOwner && isMember && (
                 <Tooltip label="Leave" placement="top">
                   <IconButton
                     icon={<FiLogOut />}
@@ -258,7 +272,7 @@ const GroupCard = ({
           </Box>
 
           {/* Add Member Section */}
-          {isMember && (
+          {(isMember || isOrgAdmin) && (
             <Box mb={4}>
               {isAddingMember ? (
                 <AddMemberForm

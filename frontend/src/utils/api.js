@@ -289,6 +289,105 @@ export const chatsAPI = {
     api.patch(`/chats/${chatId}`, { title }),
 };
 
+// Organizations API
+export const organizationsAPI = {
+  // ===================================
+  // Organization CRUD
+  // ===================================
+
+  // Create a new organization (user becomes admin)
+  create: (orgData) => api.post('/organizations', orgData),
+
+  // Get current user's organization with full details
+  getMy: () => api.get('/organizations/my'),
+
+  // Get organization details by ID (requires membership)
+  get: (orgId) => api.get(`/organizations/${orgId}`),
+
+  // Update organization settings (admin only)
+  update: (orgId, updateData) => api.put(`/organizations/${orgId}`, updateData),
+
+  // Delete organization (creator only)
+  delete: (orgId) => api.delete(`/organizations/${orgId}`),
+
+  // ===================================
+  // Member Management
+  // ===================================
+
+  // List all members of an organization
+  listMembers: (orgId) => api.get(`/organizations/${orgId}/members`),
+
+  // Update a member's role (promote/demote)
+  updateMemberRole: (orgId, userId, role) =>
+    api.put(`/organizations/${orgId}/members/${userId}/role`, { role }),
+
+  // Remove a member from the organization (admin or self)
+  removeMember: (orgId, userId) =>
+    api.delete(`/organizations/${orgId}/members/${userId}`),
+
+  // Leave the organization (members only, creator cannot leave)
+  leave: (orgId) => api.post(`/organizations/${orgId}/leave`),
+
+  // ===================================
+  // Invitation System
+  // ===================================
+
+  // Generate a shareable invite code
+  generateInviteCode: (orgId, options = {}) =>
+    api.post(`/organizations/${orgId}/invites/generate-code`, options),
+
+  // Send an email invitation (admin only)
+  sendEmailInvite: (orgId, email) =>
+    api.post(`/organizations/${orgId}/invites/email`, { email }),
+
+  // Join organization via invite code
+  joinViaCode: (inviteCode) =>
+    api.post(`/organizations/join/${inviteCode}`),
+
+  // List organization invites (admin only)
+  listInvites: (orgId, activeOnly = true) =>
+    api.get(`/organizations/${orgId}/invites`, { params: { active_only: activeOnly } }),
+
+  // Revoke an invite (admin only)
+  revokeInvite: (orgId, inviteId) =>
+    api.delete(`/organizations/${orgId}/invites/${inviteId}`),
+
+  // Resend an email invite (admin only)
+  resendInvite: (orgId, inviteId) =>
+    api.post(`/organizations/${orgId}/invites/${inviteId}/resend`),
+
+  // ===================================
+  // Helper Functions
+  // ===================================
+
+  // Generate shareable invite link from invite code
+  getInviteLink: (inviteCode) => {
+    const baseUrl = window.location.origin;
+    return `${baseUrl}/join/${inviteCode}`;
+  },
+
+  // Check if current user is organization admin
+  isOrgAdmin: () => {
+    const user = apiUtils.getCurrentUser();
+    return user && user.org_role === 'admin';
+  },
+
+  // Check if current user is in an organization
+  isInOrganization: () => {
+    const user = apiUtils.getCurrentUser();
+    return user && user.organization_id !== null;
+  },
+
+  // Get organization role display name
+  getRoleDisplayName: (role) => {
+    const roleNames = {
+      'admin': 'Administrator',
+      'member': 'Member'
+    };
+    return roleNames[role] || role;
+  },
+};
+
 // Users API for search and management
 export const usersAPI = {
   // Search users
@@ -327,15 +426,21 @@ export const adminAPI = {
 // Utility functions for API
 export const apiUtils = {
   // Helper to format file upload data
-  prepareUploadData: (file, visibility = 'private', userGroupId = null) => {
+  prepareUploadData: (file, visibility = 'private', userGroupId = null, organizationId = null) => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('visibility', visibility);
-    
+
     if (visibility === 'group' && userGroupId) {
       formData.append('user_group_id', userGroupId.toString());
     }
-    
+
+    // Organization ID is auto-set by backend from user context
+    // but we can optionally pass it explicitly
+    if (visibility === 'organization' && organizationId) {
+      formData.append('organization_id', organizationId.toString());
+    }
+
     return formData;
   },
   
@@ -429,7 +534,7 @@ export const apiUtils = {
   },
   
   // Helper to get visibility options
-  getVisibilityOptions: (userGroups = []) => {
+  getVisibilityOptions: (userGroups = [], currentUser = null) => {
     const options = [
       {
         value: 'private',
@@ -444,7 +549,7 @@ export const apiUtils = {
         color: 'green'
       }
     ];
-    
+
     // Add group option only if user has groups
     if (userGroups.length > 0) {
       options.push({
@@ -454,7 +559,17 @@ export const apiUtils = {
         color: 'accent',
       });
     }
-    
+
+    // Add organization option if user is in an organization
+    if (currentUser?.organization_id) {
+      options.push({
+        value: 'organization',
+        label: 'Organization',
+        description: 'All organization members can see this document',
+        color: 'blue',
+      });
+    }
+
     return options;
   },
   
@@ -549,6 +664,130 @@ export const apiUtils = {
   isAdmin: () => {
     const user = apiUtils.getCurrentUser();
     return user && user.role === 'admin';
+  },
+
+  // ===================================
+  // Organization Utility Helpers
+  // ===================================
+
+  // Prepare organization creation data
+  prepareOrganizationData: (name, description = '') => {
+    return {
+      name: name.trim(),
+      description: description.trim(),
+    };
+  },
+
+  // Check if current user can perform organization action
+  canPerformOrgAction: (action, currentUser, organization = null, targetMember = null) => {
+    if (!currentUser) return false;
+
+    // System admin can do everything
+    if (currentUser.role === 'admin') return true;
+
+    // Must be in an organization for most actions
+    const isInOrg = currentUser.organization_id !== null;
+    const isOrgAdmin = currentUser.org_role === 'admin';
+    const isCreator = organization && organization.created_by_id === currentUser.id;
+
+    switch (action) {
+      case 'create_organization':
+        // Must not be in an organization
+        return !isInOrg && currentUser.email_verified;
+
+      case 'join_organization':
+        // Must not be in an organization
+        return !isInOrg && currentUser.email_verified;
+
+      case 'leave_organization':
+        // Members can leave, but creator cannot
+        return isInOrg && !isCreator;
+
+      case 'delete_organization':
+        // Only creator can delete
+        return isCreator;
+
+      case 'update_organization':
+        // Only admins can update settings
+        return isInOrg && isOrgAdmin;
+
+      case 'invite_members':
+        // Admins always can, members if settings allow
+        if (isOrgAdmin) return true;
+        return isInOrg && organization?.settings?.allow_member_invites === true;
+
+      case 'promote_member':
+      case 'demote_member':
+        // Only admins can change roles
+        if (!isOrgAdmin) return false;
+        // Cannot demote creator
+        if (targetMember && organization && targetMember.user_id === organization.created_by_id) {
+          return false;
+        }
+        return true;
+
+      case 'remove_member':
+        // Admins can remove anyone except creator
+        if (isOrgAdmin) {
+          if (targetMember && organization && targetMember.user_id === organization.created_by_id) {
+            return false;
+          }
+          return true;
+        }
+        // Members can only remove themselves
+        return targetMember && targetMember.user_id === currentUser.id;
+
+      case 'view_invites':
+      case 'revoke_invite':
+        // Only admins can manage invites
+        return isOrgAdmin;
+
+      case 'view_members':
+        // All org members can view
+        return isInOrg;
+
+      default:
+        return false;
+    }
+  },
+
+  // Get organization badge color based on role
+  getOrgRoleBadgeColor: (role) => {
+    const colors = {
+      'admin': 'purple',
+      'member': 'blue',
+    };
+    return colors[role] || 'gray';
+  },
+
+  // Validate organization name
+  validateOrgName: (name) => {
+    if (!name || name.trim().length === 0) {
+      return { valid: false, error: 'Organization name is required' };
+    }
+    if (name.trim().length < 3) {
+      return { valid: false, error: 'Organization name must be at least 3 characters' };
+    }
+    if (name.length > 100) {
+      return { valid: false, error: 'Organization name must be less than 100 characters' };
+    }
+    return { valid: true };
+  },
+
+  // Validate invite code format
+  validateInviteCode: (code) => {
+    if (!code || code.trim().length === 0) {
+      return { valid: false, error: 'Invite code is required' };
+    }
+    // Invite codes should be alphanumeric and of reasonable length
+    const cleaned = code.trim();
+    if (cleaned.length < 8 || cleaned.length > 32) {
+      return { valid: false, error: 'Invalid invite code format' };
+    }
+    if (!/^[a-zA-Z0-9]+$/.test(cleaned)) {
+      return { valid: false, error: 'Invite code can only contain letters and numbers' };
+    }
+    return { valid: true, code: cleaned };
   },
 };
 

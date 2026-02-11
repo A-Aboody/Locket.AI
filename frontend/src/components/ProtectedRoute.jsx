@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { Box, Spinner, Center, Text, VStack } from '@chakra-ui/react';
 import { authAPI } from '../utils/api';
+import { usePendingFile } from '../contexts/PendingFileContext';
 
 const ProtectedRoute = ({ children, requireVerification = true }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(null);
   const [isVerified, setIsVerified] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const location = useLocation();
+  const { pendingFilePath } = usePendingFile();
 
   useEffect(() => {
     checkAuth();
@@ -85,12 +87,31 @@ const ProtectedRoute = ({ children, requireVerification = true }) => {
 
   // Not authenticated - redirect to auth page
   if (isAuthenticated === false) {
-    return <Navigate to="/auth" state={{ from: location }} replace />;
+    return (
+      <Navigate
+        to="/auth"
+        state={{
+          from: location,
+          hasPendingFile: !!pendingFilePath,
+        }}
+        replace
+      />
+    );
   }
 
   // Authenticated but not verified (and verification is required)
   if (isAuthenticated === true && requireVerification && isVerified === false) {
-    return <Navigate to="/auth" state={{ from: location, needsVerification: true }} replace />;
+    return (
+      <Navigate
+        to="/auth"
+        state={{
+          from: location,
+          needsVerification: true,
+          hasPendingFile: !!pendingFilePath,
+        }}
+        replace
+      />
+    );
   }
 
   // All checks passed - render the protected content

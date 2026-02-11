@@ -8,7 +8,11 @@ import bcrypt
 from datetime import datetime, timezone
 from sqlalchemy import inspect
 from db_config import engine, get_db_context, test_connection
-from database_models import Base, User, UserRole, UserStatus, Document, VerificationCode, PasswordResetToken, UserGroup, UserGroupMember, Chat, ChatMessage, ChatCitation
+from database_models import (
+    Base, User, UserRole, UserStatus, Document, VerificationCode, PasswordResetToken,
+    UserGroup, UserGroupMember, Chat, ChatMessage, ChatCitation,
+    Organization, OrganizationMember, OrganizationInvite, OrgRole
+)
 
 
 def hash_password(password: str) -> str:
@@ -28,6 +32,9 @@ def create_tables():
         print("  - password_reset_tokens")
         print("  - user_groups")
         print("  - user_group_members")
+        print("  - organizations")
+        print("  - organization_members")
+        print("  - organization_invites")
         print("  - chats")
         print("  - chat_messages")
         print("  - chat_citations")
@@ -41,19 +48,20 @@ def check_tables_exist():
     """Check if all required database tables exist"""
     inspector = inspect(engine)
     existing_tables = inspector.get_table_names()
-    
+
     required_tables = [
         'users', 'documents', 'verification_codes',
         'password_reset_tokens', 'user_groups', 'user_group_members',
+        'organizations', 'organization_members', 'organization_invites',
         'chats', 'chat_messages', 'chat_citations'
     ]
-    
+
     missing_tables = [table for table in required_tables if table not in existing_tables]
-    
+
     if missing_tables:
         print(f"[INFO] Missing tables: {missing_tables}")
         return False
-    
+
     print("[INFO] All required tables exist")
     return True
 
@@ -157,6 +165,13 @@ def show_stats():
             group_count = db.query(UserGroup).count()
             group_members = db.query(UserGroupMember).count()
 
+            # Organization statistics
+            org_count = db.query(Organization).count()
+            org_members = db.query(OrganizationMember).count()
+            org_invites = db.query(OrganizationInvite).count()
+            active_invites = db.query(OrganizationInvite).filter(OrganizationInvite.is_active == True).count()
+            users_in_org = db.query(User).filter(User.organization_id.isnot(None)).count()
+
             # Chat statistics
             chat_count = db.query(Chat).count()
             message_count = db.query(ChatMessage).count()
@@ -169,9 +184,13 @@ def show_stats():
             print(f"  - Standard:    {user_count}")
             print(f"  - Active:      {active_users}")
             print(f"  - Verified:    {verified_users}")
+            print(f"  - In Orgs:     {users_in_org}")
             print(f"Documents:       {doc_count}")
             print(f"User Groups:     {group_count}")
             print(f"Group Members:   {group_members}")
+            print(f"Organizations:   {org_count}")
+            print(f"  - Members:     {org_members}")
+            print(f"  - Invites:     {org_invites} ({active_invites} active)")
             print(f"Chats:           {chat_count}")
             print(f"  - Messages:    {message_count}")
             print(f"  - Citations:   {citation_count}")
