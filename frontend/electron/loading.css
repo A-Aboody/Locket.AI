@@ -27,9 +27,11 @@ body {
 }
 
 .logo {
-    font-size: 64px;
-    margin-bottom: 16px;
-    opacity: 0.9;
+    width: 72px;
+    height: 72px;
+    margin: 0 auto 16px auto;
+    display: block;
+    object-fit: contain;
 }
 
 h1 {

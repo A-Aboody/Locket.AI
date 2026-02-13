@@ -19,13 +19,14 @@ import {
   Divider,
 } from '@chakra-ui/react';
 import { FiUserPlus, FiX, FiLogIn } from 'react-icons/fi';
-import { organizationsAPI, apiUtils } from '../utils/api';
+import { organizationsAPI, apiUtils, authAPI } from '../utils/api';
 import { useNavigate } from 'react-router-dom';
 
 const InviteAcceptModal = ({ isOpen, onClose, inviteCode }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
+  const [alreadyInOrg, setAlreadyInOrg] = useState(false);
   const toast = useToast();
   const navigate = useNavigate();
 
@@ -40,14 +41,17 @@ const InviteAcceptModal = ({ isOpen, onClose, inviteCode }) => {
           const userData = JSON.parse(user);
           setIsAuthenticated(true);
           setIsVerified(userData.email_verified || false);
+          setAlreadyInOrg(!!userData.organization_id);
         } catch (error) {
           console.error('[InviteAcceptModal] Error parsing user data:', error);
           setIsAuthenticated(false);
           setIsVerified(false);
+          setAlreadyInOrg(false);
         }
       } else {
         setIsAuthenticated(false);
         setIsVerified(false);
+        setAlreadyInOrg(false);
       }
     };
 
@@ -70,27 +74,26 @@ const InviteAcceptModal = ({ isOpen, onClose, inviteCode }) => {
     try {
       const response = await organizationsAPI.joinViaCode(inviteCode);
 
+      // Fetch fresh user data from the API to get correct org_role
+      const userResponse = await authAPI.getCurrentUser();
+      localStorage.setItem('user', JSON.stringify(userResponse.data));
+
+      // Clear any stored pending invite
+      sessionStorage.removeItem('pendingInviteCode');
+
       toast({
         title: 'Success!',
-        description: `You've successfully joined ${response.name}`,
+        description: `You've successfully joined ${response.data.name}`,
         status: 'success',
         duration: 5000,
         isClosable: true,
       });
 
-      // Update user data in localStorage
-      const user = localStorage.getItem('user');
-      if (user) {
-        const userData = JSON.parse(user);
-        userData.organization_id = response.id;
-        localStorage.setItem('user', JSON.stringify(userData));
-      }
-
       onClose();
 
-      // Navigate to organization settings or dashboard
+      // Navigate to the dashboard
       setTimeout(() => {
-        navigate('/settings/organization');
+        navigate('/dashboard');
       }, 500);
     } catch (error) {
       console.error('[InviteAcceptModal] Error accepting invite:', error);
@@ -117,6 +120,7 @@ const InviteAcceptModal = ({ isOpen, onClose, inviteCode }) => {
   };
 
   const handleDecline = () => {
+    sessionStorage.removeItem('pendingInviteCode');
     toast({
       title: 'Invitation declined',
       description: 'You can accept this invitation later from the email link.',
@@ -191,7 +195,7 @@ const InviteAcceptModal = ({ isOpen, onClose, inviteCode }) => {
               >
                 <AlertIcon color="orange.300" />
                 <AlertDescription color="gray.300" fontSize="sm">
-                  You need to log in to accept this invitation.
+                  You need to log in or create an account to accept this invitation.
                 </AlertDescription>
               </Alert>
             )}
@@ -208,6 +212,23 @@ const InviteAcceptModal = ({ isOpen, onClose, inviteCode }) => {
                 <AlertIcon color="orange.300" />
                 <AlertDescription color="gray.300" fontSize="sm">
                   Please verify your email address before joining an organization.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {isAuthenticated && alreadyInOrg && (
+              <Alert
+                status="warning"
+                variant="subtle"
+                borderRadius="md"
+                bg="orange.900"
+                borderWidth="1px"
+                borderColor="orange.700"
+              >
+                <AlertIcon color="orange.300" />
+                <AlertDescription color="gray.300" fontSize="sm">
+                  You are already a member of an organization. You must leave your current
+                  organization before joining a new one.
                 </AlertDescription>
               </Alert>
             )}
@@ -239,7 +260,7 @@ const InviteAcceptModal = ({ isOpen, onClose, inviteCode }) => {
                 onClick={handleLoginFirst}
                 leftIcon={<FiLogIn />}
               >
-                Log In First
+                Log In / Sign Up
               </Button>
             ) : (
               <Button
@@ -248,7 +269,7 @@ const InviteAcceptModal = ({ isOpen, onClose, inviteCode }) => {
                 isLoading={isLoading}
                 loadingText="Joining..."
                 leftIcon={<FiUserPlus />}
-                isDisabled={!isVerified}
+                isDisabled={!isVerified || alreadyInOrg}
               >
                 Accept & Join
               </Button>

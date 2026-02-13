@@ -21,8 +21,9 @@ export const getUserMode = () => {
     }
 
     // If user is in an organization, check their preference
+    // Default to organization mode for org users (so they see org documents by default)
     const savedMode = localStorage.getItem(MODE_STORAGE_KEY);
-    return savedMode === MODES.ORGANIZATION ? MODES.ORGANIZATION : MODES.PERSONAL;
+    return savedMode === MODES.PERSONAL ? MODES.PERSONAL : MODES.ORGANIZATION;
   } catch (error) {
     console.error('Error getting user mode:', error);
     return MODES.PERSONAL;

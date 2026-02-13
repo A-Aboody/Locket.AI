@@ -57,6 +57,7 @@
   "build": {
     "appId": "com.yourteam.documentretrieval",
     "productName": "Locket.AI",
+    "icon": "public/icon.png",
     "directories": {
       "output": "release"
     },

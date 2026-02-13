@@ -1,10 +1,11 @@
-import { Box, Container, Flex, Heading, Text, Icon, useDisclosure, HStack, Alert, AlertIcon } from '@chakra-ui/react';
+import { Box, Container, Flex, Heading, Text, Icon, Image, useDisclosure, HStack, Alert, AlertIcon } from '@chakra-ui/react';
 import { FiLock, FiShield, FiZap, FiCpu } from 'react-icons/fi';
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import AuthForm from '../custom_components/AuthForm';
 import VerificationModal from '../custom_components/VerificationModal';
 import ResetPasswordModal from '../custom_components/ResetPasswordModal';
+import logo from '../assets/Locket.AI-Logo.png';
 
 const AuthPage = () => {
   const [user, setUser] = useState(null);
@@ -148,7 +149,7 @@ const AuthPage = () => {
         borderBottom="1px"
         borderColor="primary.700"
       >
-        <Icon as={FiLock} boxSize={12} color="accent.500" mb={3} />
+        <Image src={logo} alt="Locket.AI" boxSize="64px" objectFit="contain" mx="auto" mb={3} />
         <Heading size="xl" color="white" mb={2} fontWeight="bold">
           LOCKET.AI
         </Heading>
@@ -242,7 +243,7 @@ const AuthPage = () => {
               ) : (
                 <>
                   <Box position="relative" display="inline-block" mb={6}>
-                    <Icon as={FiLock} boxSize={20} color="accent.500" />
+                    <Image src={logo} alt="Locket.AI" boxSize="80px" objectFit="contain" />
                     <Box
                       position="absolute"
                       top="50%"

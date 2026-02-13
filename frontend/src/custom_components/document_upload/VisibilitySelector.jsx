@@ -9,7 +9,7 @@ import {
   Badge,
   Box,
 } from '@chakra-ui/react';
-import { FiEyeOff, FiGlobe, FiUsers, FiCheck } from 'react-icons/fi';
+import { FiEyeOff, FiGlobe, FiUsers, FiCheck, FiBriefcase } from 'react-icons/fi';
 import { isOrganizationMode } from '../../utils/modeUtils';
 
 const VisibilitySelector = ({
@@ -21,7 +21,7 @@ const VisibilitySelector = ({
   currentUser
 }) => {
   // Check if in organization mode (not just if user has organization_id)
-  const showGroupOption = isOrganizationMode();
+  const inOrgMode = isOrganizationMode();
   const hasOrganization = !!currentUser?.organization_id;
 
   const visibilityOptions = [
@@ -32,19 +32,18 @@ const VisibilitySelector = ({
       title: 'Private',
       description: 'Only you can access this document',
     },
-    {
-      value: 'public',
-      icon: FiGlobe,
-      color: 'green',
-      title: 'Public',
-      description: hasOrganization
-        ? `All members in ${currentUser.organization_name || 'your organization'} can access this document`
-        : 'All users can access this document',
-    },
   ];
 
-  // Only show group option if in organization mode
-  if (showGroupOption) {
+  // In organization mode, show organization-wide and group options
+  if (inOrgMode && hasOrganization) {
+    visibilityOptions.push({
+      value: 'organization',
+      icon: FiBriefcase,
+      color: 'blue',
+      title: 'Organization',
+      description: `All members in ${currentUser.organization_name || 'your organization'} can access`,
+    });
+
     visibilityOptions.push({
       value: 'group',
       icon: FiUsers,

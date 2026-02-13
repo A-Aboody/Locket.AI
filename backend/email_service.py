@@ -5,6 +5,7 @@ Email service for sending verification codes and notifications
 
 import smtplib
 import os
+import base64
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Optional, Dict
@@ -149,7 +150,7 @@ class EmailService:
         from config import Config
 
         # Generate magic link
-        magic_link = f"{Config.LANDING_PAGE_URL}/accept-invite?code={invite_code}"
+        magic_link = f"{Config.LANDING_PAGE_URL}/accept-invite.html?code={invite_code}"
 
         subject = f"Join {organization_name} on {self.app_name}"
 

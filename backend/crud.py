@@ -544,12 +544,19 @@ def get_visible_documents(db: Session, user_id: int, skip: int = 0, limit: int =
         )
     ]
 
-    # SECURITY: Public documents - only within same organization
+    # SECURITY: Public and organization documents - only within same organization
     if user.organization_id:
         # User in organization: show public docs from their organization
         conditions.append(
             and_(
                 Document.visibility == 'public',
+                Document.organization_id == user.organization_id
+            )
+        )
+        # Organization-wide documents visible to all org members
+        conditions.append(
+            and_(
+                Document.visibility == 'organization',
                 Document.organization_id == user.organization_id
             )
         )
@@ -561,6 +568,99 @@ def get_visible_documents(db: Session, user_id: int, skip: int = 0, limit: int =
                 Document.organization_id.is_(None)
             )
         )
+
+    return db.query(Document).options(
+        joinedload(Document.uploaded_by),
+        joinedload(Document.user_group)
+    ).filter(
+        or_(*conditions)
+    ).order_by(
+        Document.uploaded_at.desc()
+    ).offset(skip).limit(limit).all()
+
+
+def get_personal_documents(db: Session, user_id: int, skip: int = 0, limit: int = 100) -> List[Document]:
+    """
+    Get only the user's own private documents (personal mode - Documents tab).
+    
+    Args:
+        db: Database session
+        user_id: User ID
+        skip: Number of records to skip
+        limit: Maximum number of records to return
+    
+    Returns:
+        List of user's private documents
+    """
+    return db.query(Document).options(
+        joinedload(Document.uploaded_by),
+        joinedload(Document.user_group)
+    ).filter(
+        and_(
+            Document.uploaded_by_id == user_id,
+            Document.visibility == 'private'
+        )
+    ).order_by(
+        Document.uploaded_at.desc()
+    ).offset(skip).limit(limit).all()
+
+
+def get_organization_documents(db: Session, user_id: int, skip: int = 0, limit: int = 100) -> List[Document]:
+    """
+    Get all documents visible in organization mode (Documents tab).
+    Includes: organization-wide docs, group docs within the org, public docs within the org,
+    and the user's own private documents.
+    Admins see all documents.
+    
+    Args:
+        db: Database session
+        user_id: User ID
+        skip: Number of records to skip
+        limit: Maximum number of records to return
+    
+    Returns:
+        List of organization-scoped documents
+    """
+    user = get_user_by_id(db, user_id)
+    if not user:
+        return []
+
+    # Admins see everything
+    if user.role == UserRole.ADMIN:
+        return get_all_documents(db, skip=skip, limit=limit)
+
+    # User must be in an organization for org mode
+    if not user.organization_id:
+        # Fallback to personal documents if not in an org
+        return get_personal_documents(db, user_id, skip=skip, limit=limit)
+
+    # Get all groups the user is member of
+    user_group_ids = db.query(UserGroupMember.group_id).filter(
+        UserGroupMember.user_id == user_id
+    ).scalar_subquery()
+
+    conditions = [
+        # Organization-wide documents
+        and_(
+            Document.visibility == 'organization',
+            Document.organization_id == user.organization_id
+        ),
+        # Group documents where user is a member
+        and_(
+            Document.visibility == 'group',
+            Document.user_group_id.in_(user_group_ids)
+        ),
+        # Public documents within the same organization
+        and_(
+            Document.visibility == 'public',
+            Document.organization_id == user.organization_id
+        ),
+        # User's own private documents (still visible to them in org mode)
+        and_(
+            Document.visibility == 'private',
+            Document.uploaded_by_id == user_id
+        ),
+    ]
 
     return db.query(Document).options(
         joinedload(Document.uploaded_by),
@@ -611,15 +711,16 @@ def delete_document(db: Session, document_id: int) -> bool:
     return False
 
 
-def update_document_visibility(db: Session, document_id: int, visibility: str, user_group_id: Optional[int] = None) -> Optional[Document]:
+def update_document_visibility(db: Session, document_id: int, visibility: str, user_group_id: Optional[int] = None, organization_id: Optional[int] = None) -> Optional[Document]:
     """
-    Update document visibility and group association
+    Update document visibility, group association, and organization scope
 
     Args:
         db: Database session
         document_id: Document ID
-        visibility: New visibility setting ('private', 'public', or 'group')
+        visibility: New visibility setting ('private', 'public', 'group', or 'organization')
         user_group_id: Group ID if visibility is 'group', otherwise None
+        organization_id: Organization ID if visibility is 'public' or 'organization'
 
     Returns:
         Updated document if successful, None otherwise
@@ -636,6 +737,12 @@ def update_document_visibility(db: Session, document_id: int, visibility: str, u
         document.user_group_id = user_group_id
     else:
         document.user_group_id = None
+
+    # Update organization scope
+    if visibility in ['public', 'organization']:
+        document.organization_id = organization_id
+    elif visibility == 'private':
+        document.organization_id = None
 
     document.updated_at = datetime.now(timezone.utc)
 

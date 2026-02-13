@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -7,6 +7,8 @@ import {
   HStack,
   Text,
   IconButton,
+  Button,
+  Input,
   Tabs,
   TabList,
   TabPanels,
@@ -17,12 +19,19 @@ import {
   Alert,
   AlertIcon,
   AlertDescription,
+  AlertDialog,
+  AlertDialogBody,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogContent,
+  AlertDialogOverlay,
+  useDisclosure,
   useToast,
 } from '@chakra-ui/react';
-import { FiArrowLeft, FiSettings, FiUsers, FiMail } from 'react-icons/fi';
+import { FiArrowLeft, FiSettings, FiUsers, FiMail, FiTrash2 } from 'react-icons/fi';
 import AppHeader from '../custom_components/AppHeader';
 import PageTransition from '../custom_components/PageTransition';
-import { organizationsAPI, apiUtils } from '../utils/api';
+import { organizationsAPI, apiUtils, authAPI } from '../utils/api';
 import { OrganizationMemberList, InviteCodeGenerator } from '../components/organization';
 import EmailInviteManager from '../components/organization/EmailInviteManager';
 import InviteList from '../components/organization/InviteList';
@@ -37,9 +46,49 @@ const OrganizationSettings = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [tabIndex, setTabIndex] = useState(0);
   const [inviteRefreshTrigger, setInviteRefreshTrigger] = useState(0);
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
+  const deleteCancelRef = useRef();
 
   const navigate = useNavigate();
   const toast = useToast();
+
+  const handleDeleteOrganization = async () => {
+    if (deleteConfirmName !== organization?.name) return;
+
+    setIsDeleting(true);
+    try {
+      await organizationsAPI.delete(organization.id);
+
+      // Clear org data from localStorage
+      const updatedUser = { ...user, organization_id: null, org_role: null, organization_name: null };
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+
+      toast({
+        title: 'Organization deleted',
+        description: `${organization.name} has been permanently deleted`,
+        status: 'success',
+        duration: 5000,
+        isClosable: true,
+      });
+
+      navigate('/');
+    } catch (error) {
+      const errorMsg = apiUtils.handleError(error, 'Failed to delete organization');
+      toast({
+        title: 'Error',
+        description: errorMsg,
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setIsDeleting(false);
+      onDeleteClose();
+    }
+  };
 
   const handleInviteSent = () => {
     // Trigger refresh of invite list
@@ -47,18 +96,24 @@ const OrganizationSettings = () => {
   };
 
   useEffect(() => {
-    loadOrganization();
+    loadData();
   }, []);
 
-  const loadOrganization = async () => {
-    if (!user?.organization_id) {
-      setIsLoading(false);
-      return;
-    }
-
+  const loadData = async () => {
     try {
-      const response = await organizationsAPI.getMy();
-      setOrganization(response.data);
+      // Fetch fresh user data to get current org_role
+      const userResponse = await authAPI.getCurrentUser();
+      const freshUser = userResponse.data;
+      localStorage.setItem('user', JSON.stringify(freshUser));
+      setUser(freshUser);
+
+      if (!freshUser?.organization_id) {
+        setIsLoading(false);
+        return;
+      }
+
+      const orgResponse = await organizationsAPI.getMy();
+      setOrganization(orgResponse.data);
     } catch (error) {
       console.error('Failed to load organization:', error);
       toast({
@@ -146,6 +201,7 @@ const OrganizationSettings = () => {
   const canManageOrganization = apiUtils.canPerformOrgAction('update_organization', user, organization);
   const canManageMembers = apiUtils.canPerformOrgAction('promote_member', user, organization);
   const canViewInvites = apiUtils.canPerformOrgAction('view_invites', user, organization);
+  const canDeleteOrganization = apiUtils.canPerformOrgAction('delete_organization', user, organization);
 
   return (
     <Box minH="100vh" bg="background.primary">
@@ -254,49 +310,78 @@ const OrganizationSettings = () => {
                 {/* General Settings Tab */}
                 {canManageOrganization && (
                   <TabPanel px={0}>
-                    <Box
-                      bg="primary.800"
-                      borderWidth="1px"
-                      borderColor="primary.600"
-                      borderRadius="md"
-                      p={6}
-                    >
-                      <Text color="white" fontSize="lg" fontWeight="600" mb={4}>
-                        General Settings
-                      </Text>
-                      <VStack spacing={4} align="stretch">
-                        <Box>
-                          <Text color="gray.300" fontSize="sm" fontWeight="500" mb={2}>
-                            Organization Name
-                          </Text>
-                          <Text color="white" fontSize="md">
-                            {organization?.name}
-                          </Text>
-                        </Box>
-                        {organization?.description && (
+                    <VStack spacing={6} align="stretch">
+                      <Box
+                        bg="primary.800"
+                        borderWidth="1px"
+                        borderColor="primary.600"
+                        borderRadius="md"
+                        p={6}
+                      >
+                        <Text color="white" fontSize="lg" fontWeight="600" mb={4}>
+                          General Settings
+                        </Text>
+                        <VStack spacing={4} align="stretch">
                           <Box>
                             <Text color="gray.300" fontSize="sm" fontWeight="500" mb={2}>
-                              Description
+                              Organization Name
                             </Text>
                             <Text color="white" fontSize="md">
-                              {organization.description}
+                              {organization?.name}
                             </Text>
                           </Box>
-                        )}
-                        <Box>
-                          <Text color="gray.300" fontSize="sm" fontWeight="500" mb={2}>
-                            Created
+                          {organization?.description && (
+                            <Box>
+                              <Text color="gray.300" fontSize="sm" fontWeight="500" mb={2}>
+                                Description
+                              </Text>
+                              <Text color="white" fontSize="md">
+                                {organization.description}
+                              </Text>
+                            </Box>
+                          )}
+                          <Box>
+                            <Text color="gray.300" fontSize="sm" fontWeight="500" mb={2}>
+                              Created
+                            </Text>
+                            <Text color="white" fontSize="md">
+                              {new Date(organization?.created_at).toLocaleDateString('en-US', {
+                                year: 'numeric',
+                                month: 'long',
+                                day: 'numeric',
+                              })}
+                            </Text>
+                          </Box>
+                        </VStack>
+                      </Box>
+
+                      {/* Danger Zone */}
+                      {canDeleteOrganization && (
+                        <Box
+                          bg="primary.800"
+                          borderWidth="1px"
+                          borderColor="red.700"
+                          borderRadius="md"
+                          p={6}
+                        >
+                          <Text color="red.400" fontSize="lg" fontWeight="600" mb={2}>
+                            Danger Zone
                           </Text>
-                          <Text color="white" fontSize="md">
-                            {new Date(organization?.created_at).toLocaleDateString('en-US', {
-                              year: 'numeric',
-                              month: 'long',
-                              day: 'numeric',
-                            })}
+                          <Text color="gray.400" fontSize="sm" mb={4}>
+                            Deleting an organization is permanent and cannot be undone. All members will be removed.
                           </Text>
+                          <Button
+                            colorScheme="red"
+                            variant="outline"
+                            leftIcon={<FiTrash2 />}
+                            onClick={onDeleteOpen}
+                            size="sm"
+                          >
+                            Delete Organization
+                          </Button>
                         </Box>
-                      </VStack>
-                    </Box>
+                      )}
+                    </VStack>
                   </TabPanel>
                 )}
 
@@ -305,7 +390,7 @@ const OrganizationSettings = () => {
                   <OrganizationMemberList
                     organization={organization}
                     currentUser={user}
-                    onMemberUpdate={loadOrganization}
+                    onMemberUpdate={loadData}
                   />
                 </TabPanel>
 
@@ -335,6 +420,68 @@ const OrganizationSettings = () => {
           </Container>
         </PageTransition>
       </Box>
+
+      {/* Delete Organization Confirmation Dialog */}
+      <AlertDialog
+        isOpen={isDeleteOpen}
+        leastDestructiveRef={deleteCancelRef}
+        onClose={() => {
+          onDeleteClose();
+          setDeleteConfirmName('');
+        }}
+      >
+        <AlertDialogOverlay>
+          <AlertDialogContent bg="primary.800" borderColor="red.700" borderWidth="1px">
+            <AlertDialogHeader fontSize="lg" fontWeight="bold" color="white">
+              Delete Organization
+            </AlertDialogHeader>
+
+            <AlertDialogBody>
+              <VStack spacing={4} align="stretch">
+                <Text color="gray.300">
+                  This action is <Text as="span" color="red.400" fontWeight="bold">permanent</Text> and cannot be undone.
+                  All members will be removed from the organization.
+                </Text>
+                <Text color="gray.300" fontSize="sm">
+                  Type <Text as="span" color="white" fontWeight="bold">{organization?.name}</Text> to confirm:
+                </Text>
+                <Input
+                  value={deleteConfirmName}
+                  onChange={(e) => setDeleteConfirmName(e.target.value)}
+                  placeholder="Organization name"
+                  bg="primary.700"
+                  borderColor="primary.600"
+                  color="white"
+                  _hover={{ borderColor: 'primary.500' }}
+                  _focus={{ borderColor: 'red.500', boxShadow: '0 0 0 1px var(--chakra-colors-red-500)' }}
+                />
+              </VStack>
+            </AlertDialogBody>
+
+            <AlertDialogFooter>
+              <Button
+                ref={deleteCancelRef}
+                onClick={() => {
+                  onDeleteClose();
+                  setDeleteConfirmName('');
+                }}
+                variant="ghost"
+              >
+                Cancel
+              </Button>
+              <Button
+                colorScheme="red"
+                onClick={handleDeleteOrganization}
+                ml={3}
+                isLoading={isDeleting}
+                isDisabled={deleteConfirmName !== organization?.name}
+              >
+                Delete Organization
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialogOverlay>
+      </AlertDialog>
     </Box>
   );
 };

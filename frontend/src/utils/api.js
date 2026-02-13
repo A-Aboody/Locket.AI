@@ -135,10 +135,10 @@ export const documentsAPI = {
     });
   },
   
-  // List documents with optional filters
+  // List documents with optional filters (pass mode: 'personal' or 'organization')
   list: (params = {}) => api.get('/documents', { params }),
   
-  // Get only user's documents
+  // Get only user's documents (always returns ALL user uploads regardless of mode)
   listMyDocuments: (params = {}) => api.get('/documents', { 
     params: { ...params, user_only: true } 
   }),
@@ -784,8 +784,8 @@ export const apiUtils = {
     if (cleaned.length < 8 || cleaned.length > 32) {
       return { valid: false, error: 'Invalid invite code format' };
     }
-    if (!/^[a-zA-Z0-9]+$/.test(cleaned)) {
-      return { valid: false, error: 'Invite code can only contain letters and numbers' };
+    if (!/^[a-zA-Z0-9_-]+$/.test(cleaned)) {
+      return { valid: false, error: 'Invite code can only contain letters, numbers, hyphens, and underscores' };
     }
     return { valid: true, code: cleaned };
   },

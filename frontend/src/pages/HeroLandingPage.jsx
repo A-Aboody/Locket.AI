@@ -11,6 +11,7 @@ import {
     Grid,
     GridItem,
     Icon,
+    Image,
     Badge,
     useBreakpointValue,
     Card,
@@ -26,6 +27,7 @@ import { FiSearch, FiLock, FiUpload, FiUsers, FiZap, FiShield, FiArrowRight, FiC
 import { useNavigate } from 'react-router-dom';
 import AuthForm from '../custom_components/AuthForm';
 import VerificationModal from '../custom_components/VerificationModal';
+import logo from '../assets/Locket.AI-Logo.png';
 
 const HeroLandingPage = () => {
     const navigate = useNavigate();
@@ -115,8 +117,8 @@ const HeroLandingPage = () => {
             >
                 <Container maxW="container.xl">
                     <Flex justify="space-between" align="center">
-                        <HStack spacing={4}>
-                            <Icon as={FiLock} boxSize={8} color="accent.500" />
+                        <HStack spacing={3}>
+                            <Image src={logo} alt="Locket.AI" boxSize="40px" objectFit="contain" />
                             <VStack spacing={0} align="start">
                                 <Heading size="lg" fontWeight="bold" color="white">
                                     LOCKET.AI
@@ -542,7 +544,7 @@ const HeroLandingPage = () => {
                 <Container maxW="container.xl">
                     <Flex justify="space-between" align="center">
                         <HStack spacing={3}>
-                            <Icon as={FiLock} boxSize={6} color="accent.500" />
+                            <Image src={logo} alt="Locket.AI" boxSize="32px" objectFit="contain" />
                             <VStack spacing={0} align="start">
                                 <Heading size="md" color="white">
                                     LOCKET.AI

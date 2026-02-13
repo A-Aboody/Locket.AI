@@ -1,9 +1,23 @@
 // Utility functions for filtering documents based on user mode
+//
+// NOTE: Mode-aware filtering is now primarily handled by the backend via the
+// `mode` query parameter on GET /api/documents. These client-side utilities
+// are kept for edge cases (e.g., search results filtering) but should NOT be
+// used for the main document list or My Uploads — those are handled server-side.
 
-import { isPersonalMode } from './modeUtils';
+import { isPersonalMode, getUserMode } from './modeUtils';
+
+/**
+ * Get the current mode string for API calls
+ * @returns {string} 'personal' or 'organization'
+ */
+export const getCurrentMode = () => {
+  return getUserMode();
+};
 
 /**
  * Filter documents based on current mode (personal vs organization)
+ * Used for search results and other client-side filtering needs.
  *
  * @param {Array} documents - Array of documents to filter
  * @param {number} currentUserId - Current user's ID

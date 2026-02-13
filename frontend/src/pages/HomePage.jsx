@@ -27,14 +27,12 @@ import AppHeader from '../custom_components/AppHeader';
 import NavTabs from '../custom_components/NavTabs';
 import PageTransition from '../custom_components/PageTransition';
 import { searchAPI, documentsAPI } from '../utils/api';
-import { filterDocumentsByMode } from '../utils/documentFilters';
+import { getCurrentMode } from '../utils/documentFilters';
 
 const HomePage = () => {
   const [user, setUser] = useState(null);
-  const [allRecentDocs, setAllRecentDocs] = useState([]); // Store all docs from backend
-  const [allMyUploadsDocs, setAllMyUploadsDocs] = useState([]); // Store all docs from backend
-  const [recentDocs, setRecentDocs] = useState([]); // Filtered docs for display
-  const [myUploadsDocs, setMyUploadsDocs] = useState([]); // Filtered docs for display
+  const [recentDocs, setRecentDocs] = useState([]); // Docs for display
+  const [myUploadsDocs, setMyUploadsDocs] = useState([]); // Docs for display
   const [viewingDocumentId, setViewingDocumentId] = useState(null);
   const [previewDocumentId, setPreviewDocumentId] = useState(null);
   const [viewMode, setViewMode] = useState(localStorage.getItem('documentViewMode') || 'card');
@@ -53,42 +51,41 @@ const HomePage = () => {
     if (storedUser) {
       const userData = JSON.parse(storedUser);
       setUser(userData);
-      fetchRecentActivity(userData.id);
-      fetchMyUploads(userData.id);
+      fetchRecentActivity();
+      fetchMyUploads();
     }
   }, []);
 
-  // Listen for mode changes and re-filter documents
+  // Listen for mode changes and re-fetch documents from backend
   useEffect(() => {
     const handleModeChange = () => {
       if (user) {
-        // Re-filter documents when mode changes
-        setRecentDocs(filterDocumentsByMode(allRecentDocs, user.id));
-        setMyUploadsDocs(filterDocumentsByMode(allMyUploadsDocs, user.id));
+        // Re-fetch documents when mode changes (backend filters by mode)
+        fetchRecentActivity();
+        // My Uploads doesn't change with mode, but we keep it consistent
       }
     };
 
     window.addEventListener('modeChanged', handleModeChange);
     return () => window.removeEventListener('modeChanged', handleModeChange);
-  }, [user, allRecentDocs, allMyUploadsDocs]);
+  }, [user]);
 
-  const fetchRecentActivity = async (userId) => {
+  const fetchRecentActivity = async () => {
     try {
-      const response = await documentsAPI.list({ limit: 100 });
-      setAllRecentDocs(response.data);
-      // Filter and set display docs
-      setRecentDocs(filterDocumentsByMode(response.data, userId).slice(0, 6));
+      // Pass current mode to backend for proper filtering
+      const mode = getCurrentMode();
+      const response = await documentsAPI.list({ limit: 100, mode });
+      setRecentDocs(response.data.slice(0, 6));
     } catch (error) {
       console.error('Failed to fetch recent activity:', error);
     }
   };
 
-  const fetchMyUploads = async (userId) => {
+  const fetchMyUploads = async () => {
     try {
       const response = await documentsAPI.listMyDocuments({ limit: 100 });
-      setAllMyUploadsDocs(response.data);
-      // Filter and set display docs
-      setMyUploadsDocs(filterDocumentsByMode(response.data, userId).slice(0, 6));
+      // My Uploads always shows all user's documents regardless of mode
+      setMyUploadsDocs(response.data.slice(0, 6));
     } catch (error) {
       console.error('Failed to fetch user uploads:', error);
     }

@@ -160,7 +160,6 @@ const OrganizationJoinForm = ({ onSuccess, onCancel }) => {
             placeholder="Enter invite code"
             size="lg"
             fontFamily="mono"
-            textTransform="uppercase"
             autoFocus
             autoComplete="off"
           />

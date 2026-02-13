@@ -22,12 +22,10 @@ import AppHeader from '../custom_components/AppHeader';
 import NavTabs from '../custom_components/NavTabs';
 import PageTransition from '../custom_components/PageTransition';
 import { searchAPI, documentsAPI } from '../utils/api';
-import { filterDocumentsByMode } from '../utils/documentFilters';
 
 const MyUploadsPage = () => {
   const [user, setUser] = useState(null);
-  const [allDocuments, setAllDocuments] = useState([]); // Store all docs from backend
-  const [documents, setDocuments] = useState([]); // Filtered docs for display
+  const [documents, setDocuments] = useState([]); // All user's uploads for display
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [viewingDocumentId, setViewingDocumentId] = useState(null);
   const [previewDocumentId, setPreviewDocumentId] = useState(null);
@@ -56,25 +54,14 @@ const MyUploadsPage = () => {
     }
   }, [refreshTrigger, user]);
 
-  // Listen for mode changes and re-filter documents
-  useEffect(() => {
-    const handleModeChange = () => {
-      if (user) {
-        // Re-filter documents when mode changes
-        setDocuments(filterDocumentsByMode(allDocuments, user.id));
-      }
-    };
-
-    window.addEventListener('modeChanged', handleModeChange);
-    return () => window.removeEventListener('modeChanged', handleModeChange);
-  }, [user, allDocuments]);
+  // My Uploads always shows ALL documents the user uploaded regardless of mode.
+  // No need to re-filter on mode change — this page is mode-independent.
 
   const fetchMyDocuments = async () => {
     try {
       const response = await documentsAPI.listMyDocuments();
-      setAllDocuments(response.data);
-      // Filter and set display docs
-      setDocuments(filterDocumentsByMode(response.data, user.id));
+      // My Uploads shows ALL documents uploaded by the current user, regardless of mode
+      setDocuments(response.data);
     } catch (error) {
       toast({
         title: 'Failed to load documents',

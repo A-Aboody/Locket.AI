@@ -648,7 +648,15 @@ if (!gotTheLock) {
 
   app.whenReady().then(async () => {
     // Register custom protocol
-    if (!app.isDefaultProtocolClient('locket')) {
+    // In dev mode on Windows, we need to pass the electron exe path and the app path
+    // Always re-register in dev mode to ensure correct paths after code changes
+    if (isDev && process.platform === 'win32') {
+      app.removeAsDefaultProtocolClient('locket');
+      app.setAsDefaultProtocolClient('locket', process.execPath, [
+        path.resolve(path.join(__dirname, '..'))
+      ]);
+      console.log('[Protocol] Registered locket:// protocol handler (dev mode, exe:', process.execPath, ')');
+    } else if (!app.isDefaultProtocolClient('locket')) {
       app.setAsDefaultProtocolClient('locket');
       console.log('[Protocol] Registered locket:// protocol handler');
     }

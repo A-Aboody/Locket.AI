@@ -20,7 +20,7 @@ import InviteAcceptModal from './custom_components/InviteAcceptModal';
 
 function App() {
   const { pendingFilePath, clearPendingFile } = usePendingFile();
-  const { pendingInviteCode, clearPendingInvite } = usePendingInvite();
+  const { pendingInviteCode, setPendingInviteCode, clearPendingInvite } = usePendingInvite();
   const [viewingLocalFile, setViewingLocalFile] = useState(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
 
@@ -49,12 +49,25 @@ function App() {
   }, [pendingFilePath, clearPendingFile]);
 
   useEffect(() => {
-    // When an invite code is pending, show the modal
+    // When an invite code is pending (from deep link), show the modal
     if (pendingInviteCode) {
       console.log('[App] Opening invite modal for code:', pendingInviteCode);
       setShowInviteModal(true);
     }
   }, [pendingInviteCode]);
+
+  useEffect(() => {
+    // Check for pending invite code in sessionStorage (stored before login/signup redirect)
+    const storedInviteCode = sessionStorage.getItem('pendingInviteCode');
+    if (storedInviteCode && !pendingInviteCode) {
+      const token = localStorage.getItem('token');
+      if (token) {
+        // User is now logged in, restore the invite modal
+        console.log('[App] Restoring pending invite from sessionStorage:', storedInviteCode);
+        setPendingInviteCode(storedInviteCode);
+      }
+    }
+  }, [pendingInviteCode, setPendingInviteCode]);
 
   const handleCloseLocalFile = () => {
     setViewingLocalFile(null);

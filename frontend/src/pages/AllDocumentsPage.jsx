@@ -22,12 +22,11 @@ import AppHeader from '../custom_components/AppHeader';
 import NavTabs from '../custom_components/NavTabs';
 import PageTransition from '../custom_components/PageTransition';
 import { searchAPI, documentsAPI } from '../utils/api';
-import { filterDocumentsByMode } from '../utils/documentFilters';
+import { getCurrentMode } from '../utils/documentFilters';
 
 const AllDocumentsPage = () => {
   const [user, setUser] = useState(null);
-  const [allDocuments, setAllDocuments] = useState([]); // Store all docs from backend
-  const [documents, setDocuments] = useState([]); // Filtered docs for display
+  const [documents, setDocuments] = useState([]); // Documents for display
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [viewingDocumentId, setViewingDocumentId] = useState(null);
   const [previewDocumentId, setPreviewDocumentId] = useState(null);
@@ -55,25 +54,25 @@ const AllDocumentsPage = () => {
     }
   }, [refreshTrigger, user]);
 
-  // Listen for mode changes and re-filter documents
+  // Listen for mode changes and re-fetch documents from backend with new mode
   useEffect(() => {
     const handleModeChange = () => {
       if (user) {
-        // Re-filter documents when mode changes
-        setDocuments(filterDocumentsByMode(allDocuments, user.id));
+        // Re-fetch documents when mode changes (backend filters by mode)
+        fetchAllDocuments();
       }
     };
 
     window.addEventListener('modeChanged', handleModeChange);
     return () => window.removeEventListener('modeChanged', handleModeChange);
-  }, [user, allDocuments]);
+  }, [user]);
 
   const fetchAllDocuments = async () => {
     try {
-      const response = await documentsAPI.list();
-      setAllDocuments(response.data);
-      // Filter and set display docs
-      setDocuments(filterDocumentsByMode(response.data, user.id));
+      // Pass current mode to backend so it returns the correct document set
+      const mode = getCurrentMode();
+      const response = await documentsAPI.list({ mode });
+      setDocuments(response.data);
     } catch (error) {
       toast({
         title: 'Failed to load documents',

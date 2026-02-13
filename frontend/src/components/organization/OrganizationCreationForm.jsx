@@ -134,13 +134,13 @@ const OrganizationCreationForm = ({ onSuccess, onCancel }) => {
         </Box>
 
         <Box
-          bg="gray.50"
-          _dark={{ bg: 'gray.700' }}
+          bg="primary.800"
           p={4}
           borderRadius="md"
           borderWidth="1px"
+          borderColor="primary.600"
         >
-          <Text fontSize="xs" color="gray.500" mb={2} fontWeight="semibold">
+          <Text fontSize="xs" color="gray.400" mb={2} fontWeight="semibold" letterSpacing="wider">
             INVITE CODE
           </Text>
           <InputGroup size="lg">
@@ -150,8 +150,10 @@ const OrganizationCreationForm = ({ onSuccess, onCancel }) => {
               fontFamily="mono"
               fontWeight="bold"
               fontSize="lg"
-              bg="white"
-              _dark={{ bg: 'gray.800' }}
+              bg="primary.700"
+              borderColor="primary.600"
+              color="white"
+              _hover={{ borderColor: 'primary.500' }}
               pr="4.5rem"
             />
             <InputRightElement width="4.5rem">

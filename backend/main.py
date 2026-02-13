@@ -815,12 +815,20 @@ async def upload_document(
         )
     
     # Validate visibility
-    if visibility not in ['private', 'public', 'group']:
+    if visibility not in ['private', 'public', 'group', 'organization']:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid visibility setting"
         )
-    
+
+    # Validate organization visibility requires org membership
+    if visibility == 'organization':
+        if not current_user.organization_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You must be in an organization to use organization visibility"
+            )
+
     # Validate group access if group visibility
     if visibility == 'group':
         if not user_group_id:
@@ -828,7 +836,7 @@ async def upload_document(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Group ID required for group visibility"
             )
-        
+
         # Check if user is member of the group
         if not crud.is_user_in_group(db, current_user.id, user_group_id):
             raise HTTPException(
@@ -896,6 +904,12 @@ async def upload_document(
         embedding = None
         content_preview = content[:500] if content else ""
     
+    # Determine organization_id for the document
+    # Auto-set when user is in an org and visibility is public or organization
+    doc_organization_id = None
+    if current_user.organization_id and visibility in ['public', 'organization']:
+        doc_organization_id = current_user.organization_id
+
     # Create database record
     try:
         document = Document(
@@ -909,7 +923,8 @@ async def upload_document(
             content_preview=content_preview,
             uploaded_by_id=current_user.id,
             visibility=visibility,
-            user_group_id=user_group_id if visibility == 'group' else None
+            user_group_id=user_group_id if visibility == 'group' else None,
+            organization_id=doc_organization_id
         )
         
         db.add(document)
@@ -944,17 +959,32 @@ def list_documents(
     db: Session = Depends(get_db),
     skip: int = 0,
     limit: int = 100,
-    user_only: bool = False
+    user_only: bool = False,
+    mode: Optional[str] = None
 ):
     """
     List documents - Can list all documents or only user's documents
+    
+    Mode parameter controls filtering:
+    - 'personal': Only user's own private documents (Documents tab) or all user's docs (My Uploads)
+    - 'organization': Organization-scoped documents (Documents tab) or user's org docs (My Uploads)
+    - None: Legacy behavior - all visible documents
     """
     if user_only:
-        # Get only current user's documents
+        # My Uploads: always show ALL documents the user uploaded, regardless of mode
         documents = crud.get_user_documents(db, current_user.id, skip=skip, limit=limit)
     else:
-        # Get all visible documents (respects visibility settings)
-        documents = crud.get_visible_documents(db, current_user.id, skip=skip, limit=limit)
+        # Documents tab: filter based on mode
+        if mode == 'personal':
+            # Personal mode: only user's own private documents
+            documents = crud.get_personal_documents(db, current_user.id, skip=skip, limit=limit)
+        elif mode == 'organization':
+            # Organization mode: all org-scoped documents (organization, group, public within org)
+            # plus user's own private documents
+            documents = crud.get_organization_documents(db, current_user.id, skip=skip, limit=limit)
+        else:
+            # Legacy/default: all visible documents
+            documents = crud.get_visible_documents(db, current_user.id, skip=skip, limit=limit)
     
     # Add uploader username to each document
     result = []
@@ -971,7 +1001,8 @@ def list_documents(
             "uploaded_by_username": doc.uploaded_by.username if doc.uploaded_by else "Unknown",
             "visibility": doc.visibility,
             "user_group_id": doc.user_group_id,
-            "user_group_name": doc.user_group.name if doc.user_group else None
+            "user_group_name": doc.user_group.name if doc.user_group else None,
+            "organization_id": doc.organization_id
         }
         result.append(doc_dict)
     
@@ -1287,6 +1318,14 @@ def update_document_visibility(
             detail="You can only add documents you uploaded to groups. Admins can add any public document."
         )
 
+    # Validate organization visibility
+    if visibility_data.visibility == 'organization':
+        if not current_user.organization_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You must be in an organization to use organization visibility"
+            )
+
     # Validate group access if changing to group visibility
     if visibility_data.visibility == 'group':
         if not visibility_data.user_group_id:
@@ -1310,12 +1349,18 @@ def update_document_visibility(
                 detail="You must be a member of the group to add documents to it"
             )
 
+    # Determine organization_id for the updated visibility
+    doc_organization_id = None
+    if current_user.organization_id and visibility_data.visibility in ['public', 'organization']:
+        doc_organization_id = current_user.organization_id
+
     # Update document visibility
     updated_document = crud.update_document_visibility(
         db,
         document_id,
         visibility_data.visibility,
-        visibility_data.user_group_id
+        visibility_data.user_group_id,
+        doc_organization_id
     )
 
     if not updated_document:
@@ -2522,21 +2567,39 @@ def join_organization(
     Join organization via invite code
     Requires: verified email, not already in an organization
     """
-    # Validate and use invite
+    org_id = None
+    invited_by_id = None
+
+    # First, try to validate against the OrganizationInvite table (generated invite codes)
     success, message, invite = crud.validate_and_use_invite(db, invite_code, current_user.id)
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=message
-        )
+    if success:
+        org_id = invite.organization_id
+        invited_by_id = invite.created_by_id
+    else:
+        # Fallback: check the Organization table's base invite code
+        org_by_code = crud.get_organization_by_invite_code(db, invite_code)
+        if org_by_code:
+            # Verify the user isn't already in an organization
+            if current_user.organization_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="You are already a member of an organization"
+                )
+            org_id = org_by_code.id
+            invited_by_id = org_by_code.created_by_id
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=message
+            )
 
     # Add user to organization
     membership = crud.add_user_to_organization(
         db=db,
-        org_id=invite.organization_id,
+        org_id=org_id,
         user_id=current_user.id,
         role=OrgRole.MEMBER,
-        invited_by_id=invite.created_by_id
+        invited_by_id=invited_by_id
     )
 
     if not membership:
@@ -2546,7 +2609,7 @@ def join_organization(
         )
 
     # Get organization details
-    org = crud.get_organization_by_id(db, invite.organization_id)
+    org = crud.get_organization_by_id(db, org_id)
     member_count = len(org.members)
     admin_count = crud.get_organization_admin_count(db, org.id)
     creator = crud.get_user_by_id(db, org.created_by_id)

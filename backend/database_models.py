@@ -91,6 +91,20 @@ class User(Base):
         foreign_keys=[organization_id]
     )
 
+    @property
+    def org_role(self):
+        """Get the user's role within their organization"""
+        if self.org_membership:
+            return self.org_membership.role.value
+        return None
+
+    @property
+    def organization_name(self):
+        """Get the name of the user's organization"""
+        if self.organization:
+            return self.organization.name
+        return None
+
     def __repr__(self):
         return f"<User(id={self.id}, username='{self.username}', status={self.status.value})>"
 

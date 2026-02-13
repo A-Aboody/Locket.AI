@@ -2,11 +2,11 @@ import {
   Box,
   Heading,
   HStack,
-  Icon,
+  Image,
 } from '@chakra-ui/react';
-import { FiLock } from 'react-icons/fi';
 import ModeSwitcher from './ModeSwitcher';
 import { canSwitchModes } from '../utils/modeUtils';
+import logo from '../assets/Locket.AI-Logo.png';
 
 const AppHeader = ({ user, onModeChange }) => {
   const showModeSwitcher = user && canSwitchModes();
@@ -23,8 +23,8 @@ const AppHeader = ({ user, onModeChange }) => {
       zIndex={100}
     >
       <HStack justify="space-between">
-        <HStack spacing={4}>
-          <Icon as={FiLock} boxSize={6} color="accent.500" />
+        <HStack spacing={3}>
+          <Image src={logo} alt="Locket.AI" boxSize="32px" objectFit="contain" />
           <Heading size="md" color="white" fontWeight="bold">
             LOCKET.AI
           </Heading>
