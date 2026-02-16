@@ -370,7 +370,7 @@ const HeroLandingPage = () => {
             </Box>
 
             {/* Features Section */}
-            <Box id="features" bg="primary.950" py={24} position="relative">
+            <Box id="features" bg="primary.900" py={24} position="relative">
                 {/* Section Background Elements */}
                 <Box
                     position="absolute"

@@ -11,7 +11,7 @@ from db_config import engine, get_db_context, test_connection
 from database_models import (
     Base, User, UserRole, UserStatus, Document, VerificationCode, PasswordResetToken,
     UserGroup, UserGroupMember, Chat, ChatMessage, ChatCitation,
-    Organization, OrganizationMember, OrganizationInvite, OrgRole
+    Organization, OrganizationMember, OrganizationInvite, OrgRole, DocumentActivity
 )
 
 
@@ -35,6 +35,7 @@ def create_tables():
         print("  - organizations")
         print("  - organization_members")
         print("  - organization_invites")
+        print("  - document_activities")
         print("  - chats")
         print("  - chat_messages")
         print("  - chat_citations")
@@ -53,7 +54,7 @@ def check_tables_exist():
         'users', 'documents', 'verification_codes',
         'password_reset_tokens', 'user_groups', 'user_group_members',
         'organizations', 'organization_members', 'organization_invites',
-        'chats', 'chat_messages', 'chat_citations'
+        'document_activities', 'chats', 'chat_messages', 'chat_citations'
     ]
 
     missing_tables = [table for table in required_tables if table not in existing_tables]

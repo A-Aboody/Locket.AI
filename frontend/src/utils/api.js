@@ -142,6 +142,13 @@ export const documentsAPI = {
   listMyDocuments: (params = {}) => api.get('/documents', { 
     params: { ...params, user_only: true } 
   }),
+
+  // Get recently viewed/interacted documents
+  getRecentActivity: (params = {}) => api.get('/documents/recent-activity', { params }),
+
+  // Record a document interaction (view, preview, download)
+  recordActivity: (documentId, activityType = 'view') =>
+    api.post(`/documents/${documentId}/activity`, null, { params: { activity_type: activityType } }),
   
   // Get document metadata
   get: (documentId) => api.get(`/documents/${documentId}`),
@@ -314,8 +321,8 @@ export const organizationsAPI = {
   // Member Management
   // ===================================
 
-  // List all members of an organization
-  listMembers: (orgId) => api.get(`/organizations/${orgId}/members`),
+  // List members of an organization (paginated)
+  listMembers: (orgId, params = {}) => api.get(`/organizations/${orgId}/members`, { params }),
 
   // Update a member's role (promote/demote)
   updateMemberRole: (orgId, userId, role) =>
@@ -344,9 +351,9 @@ export const organizationsAPI = {
   joinViaCode: (inviteCode) =>
     api.post(`/organizations/join/${inviteCode}`),
 
-  // List organization invites (admin only)
-  listInvites: (orgId, activeOnly = true) =>
-    api.get(`/organizations/${orgId}/invites`, { params: { active_only: activeOnly } }),
+  // List organization invites (admin only, paginated)
+  listInvites: (orgId, activeOnly = true, params = {}) =>
+    api.get(`/organizations/${orgId}/invites`, { params: { active_only: activeOnly, ...params } }),
 
   // Revoke an invite (admin only)
   revokeInvite: (orgId, inviteId) =>

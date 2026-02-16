@@ -72,10 +72,10 @@ const HomePage = () => {
 
   const fetchRecentActivity = async () => {
     try {
-      // Pass current mode to backend for proper filtering
+      // Fetch recently viewed/interacted documents from the activity tracking endpoint
       const mode = getCurrentMode();
-      const response = await documentsAPI.list({ limit: 100, mode });
-      setRecentDocs(response.data.slice(0, 6));
+      const response = await documentsAPI.getRecentActivity({ limit: 6, mode });
+      setRecentDocs(response.data);
     } catch (error) {
       console.error('Failed to fetch recent activity:', error);
     }
@@ -152,16 +152,26 @@ const HomePage = () => {
 
   const handleViewDocument = (documentId) => {
     setPreviewDocumentId(documentId);
+    // Record preview activity
+    documentsAPI.recordActivity(documentId, 'preview').catch(() => {});
   };
 
   const handleViewDocumentFullScreen = (documentId) => {
     // Open document viewer directly (used for user groups modal)
     setViewingDocumentId(documentId);
+    // Record full view activity
+    documentsAPI.recordActivity(documentId, 'view').then(() => {
+      fetchRecentActivity();
+    }).catch(() => {});
   };
 
   const handleOpenFullViewer = () => {
     if (previewDocumentId) {
       setViewingDocumentId(previewDocumentId);
+      // Record full view activity
+      documentsAPI.recordActivity(previewDocumentId, 'view').then(() => {
+        fetchRecentActivity();
+      }).catch(() => {});
     }
   };
 

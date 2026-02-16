@@ -23,6 +23,13 @@ import {
   NumberDecrementStepper,
   Collapse,
   useDisclosure,
+  Table,
+  Thead,
+  Tbody,
+  Tr,
+  Th,
+  Td,
+  Select,
 } from '@chakra-ui/react';
 import {
   FiCopy,
@@ -32,29 +39,46 @@ import {
   FiMail,
   FiChevronDown,
   FiChevronUp,
+  FiChevronLeft,
+  FiChevronRight,
+  FiChevronsLeft,
+  FiChevronsRight,
 } from 'react-icons/fi';
 import { organizationsAPI, apiUtils } from '../../utils/api';
 
 const InviteCodeGenerator = ({ organization }) => {
-  const [invites, setInvites] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [expiryDays, setExpiryDays] = useState(7);
   const [maxUses, setMaxUses] = useState(null);
+
+  // Paginated active invites state
+  const [invites, setInvites] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalCount, setTotalCount] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
   const { isOpen: isAdvancedOpen, onToggle: onAdvancedToggle } = useDisclosure();
   const toast = useToast();
 
   useEffect(() => {
     loadInvites();
-  }, [organization?.id]);
+  }, [organization?.id, page, pageSize]);
 
   const loadInvites = async () => {
     if (!organization?.id) return;
 
     try {
-      const response = await organizationsAPI.listInvites(organization.id, true);
-      setInvites(response.data);
+      setIsLoading(true);
+      const response = await organizationsAPI.listInvites(organization.id, true, {
+        page,
+        page_size: pageSize,
+      });
+      const data = response.data;
+      setInvites(data.items || []);
+      setTotalCount(data.total_count || 0);
+      setTotalPages(data.total_pages || 1);
     } catch (error) {
       console.error('Failed to load invites:', error);
       toast({
@@ -75,7 +99,6 @@ const InviteCodeGenerator = ({ organization }) => {
       const options = {};
 
       if (expiryDays > 0) {
-        // Calculate expiry date
         const expiryDate = new Date();
         expiryDate.setDate(expiryDate.getDate() + expiryDays);
         options.expires_at = expiryDate.toISOString();
@@ -85,7 +108,7 @@ const InviteCodeGenerator = ({ organization }) => {
         options.max_uses = maxUses;
       }
 
-      const response = await organizationsAPI.generateInviteCode(organization.id, options);
+      await organizationsAPI.generateInviteCode(organization.id, options);
 
       toast({
         title: 'Invite code generated',
@@ -95,6 +118,8 @@ const InviteCodeGenerator = ({ organization }) => {
         isClosable: true,
       });
 
+      // Reset to first page and reload
+      setPage(1);
       await loadInvites();
     } catch (error) {
       const errorMsg = apiUtils.handleError(error, 'Failed to generate invite code');
@@ -135,16 +160,20 @@ const InviteCodeGenerator = ({ organization }) => {
     }
   };
 
-  if (isLoading) {
-    return (
-      <Center py={12}>
-        <VStack spacing={4}>
-          <Spinner size="lg" color="accent.500" />
-          <Text color="gray.400">Loading invites...</Text>
-        </VStack>
-      </Center>
-    );
-  }
+  const formatDate = (dateString) => {
+    if (!dateString) return 'Never';
+    return new Date(dateString).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  };
+
+  const isExpiringSoon = (expiresAt) => {
+    if (!expiresAt) return false;
+    const daysUntil = (new Date(expiresAt) - new Date()) / (1000 * 60 * 60 * 24);
+    return daysUntil <= 2;
+  };
 
   return (
     <Box>
@@ -162,7 +191,6 @@ const InviteCodeGenerator = ({ organization }) => {
         </Text>
 
         <VStack spacing={4} align="stretch">
-          {/* Advanced Options Toggle */}
           <Button
             size="sm"
             variant="ghost"
@@ -174,64 +202,38 @@ const InviteCodeGenerator = ({ organization }) => {
             {isAdvancedOpen ? 'Hide' : 'Show'} Advanced Options
           </Button>
 
-          {/* Advanced Options */}
           <Collapse in={isAdvancedOpen} animateOpacity>
             <VStack spacing={4} align="stretch" pt={2}>
               <FormControl>
-                <FormLabel color="gray.300" fontSize="sm">
-                  Expires After (days)
-                </FormLabel>
+                <FormLabel color="gray.300" fontSize="sm">Expires After (days)</FormLabel>
                 <NumberInput
                   value={expiryDays}
-                  onChange={(valueString) => setExpiryDays(parseInt(valueString) || 0)}
-                  min={0}
-                  max={365}
-                  size="md"
+                  onChange={(v) => setExpiryDays(parseInt(v) || 0)}
+                  min={0} max={365} size="md"
                 >
-                  <NumberInputField
-                    bg="primary.700"
-                    borderColor="primary.600"
-                    color="white"
-                    _hover={{ borderColor: 'primary.500' }}
-                    _focus={{ borderColor: 'accent.500' }}
-                  />
+                  <NumberInputField bg="primary.700" borderColor="primary.600" color="white" _hover={{ borderColor: 'primary.500' }} _focus={{ borderColor: 'accent.500' }} />
                   <NumberInputStepper>
                     <NumberIncrementStepper color="gray.400" />
                     <NumberDecrementStepper color="gray.400" />
                   </NumberInputStepper>
                 </NumberInput>
-                <Text fontSize="xs" color="gray.500" mt={1}>
-                  Set to 0 for no expiration
-                </Text>
+                <Text fontSize="xs" color="gray.500" mt={1}>Set to 0 for no expiration</Text>
               </FormControl>
 
               <FormControl>
-                <FormLabel color="gray.300" fontSize="sm">
-                  Maximum Uses
-                </FormLabel>
+                <FormLabel color="gray.300" fontSize="sm">Maximum Uses</FormLabel>
                 <NumberInput
                   value={maxUses || ''}
-                  onChange={(valueString) => setMaxUses(parseInt(valueString) || null)}
-                  min={1}
-                  max={1000}
-                  size="md"
+                  onChange={(v) => setMaxUses(parseInt(v) || null)}
+                  min={1} max={1000} size="md"
                 >
-                  <NumberInputField
-                    bg="primary.700"
-                    borderColor="primary.600"
-                    color="white"
-                    placeholder="Unlimited"
-                    _hover={{ borderColor: 'primary.500' }}
-                    _focus={{ borderColor: 'accent.500' }}
-                  />
+                  <NumberInputField bg="primary.700" borderColor="primary.600" color="white" placeholder="Unlimited" _hover={{ borderColor: 'primary.500' }} _focus={{ borderColor: 'accent.500' }} />
                   <NumberInputStepper>
                     <NumberIncrementStepper color="gray.400" />
                     <NumberDecrementStepper color="gray.400" />
                   </NumberInputStepper>
                 </NumberInput>
-                <Text fontSize="xs" color="gray.500" mt={1}>
-                  Leave empty for unlimited uses
-                </Text>
+                <Text fontSize="xs" color="gray.500" mt={1}>Leave empty for unlimited uses</Text>
               </FormControl>
             </VStack>
           </Collapse>
@@ -248,145 +250,185 @@ const InviteCodeGenerator = ({ organization }) => {
         </VStack>
       </Box>
 
-      {/* Active Invites */}
+      {/* Active Invites Table */}
       <Box>
         <Text color="white" fontSize="lg" fontWeight="600" mb={4}>
-          Active Invites ({invites.length})
+          Active Invites ({totalCount})
         </Text>
 
-        {invites.length === 0 ? (
-          <Box
-            bg="primary.800"
-            borderWidth="1px"
-            borderColor="primary.600"
-            borderRadius="md"
-            p={8}
-            textAlign="center"
-          >
-            <Text color="gray.400">No active invites</Text>
-            <Text color="gray.500" fontSize="sm" mt={2}>
-              Generate an invite code to start inviting members
-            </Text>
-          </Box>
-        ) : (
-          <VStack spacing={3} align="stretch">
-            {invites.map((invite) => (
-              <InviteCodeCard
-                key={invite.id}
-                invite={invite}
-                onRevoke={() => handleRevokeInvite(invite.id)}
-              />
-            ))}
-          </VStack>
-        )}
+        <Box
+          bg="primary.800"
+          borderWidth="1px"
+          borderColor="primary.600"
+          borderRadius="md"
+          overflow="hidden"
+        >
+          {isLoading ? (
+            <Center py={12}>
+              <VStack spacing={4}>
+                <Spinner size="lg" color="accent.500" />
+                <Text color="gray.400">Loading invites...</Text>
+              </VStack>
+            </Center>
+          ) : invites.length === 0 ? (
+            <Center py={8}>
+              <VStack spacing={2}>
+                <Text color="gray.400">No active invites</Text>
+                <Text color="gray.500" fontSize="sm">Generate an invite code to start inviting members</Text>
+              </VStack>
+            </Center>
+          ) : (
+            <Box overflowX="auto">
+              <Table variant="simple" size="sm">
+                <Thead>
+                  <Tr>
+                    <Th color="gray.400" borderColor="primary.600">Invite Code</Th>
+                    <Th color="gray.400" borderColor="primary.600">Type</Th>
+                    <Th color="gray.400" borderColor="primary.600">Expires</Th>
+                    <Th color="gray.400" borderColor="primary.600">Usage</Th>
+                    <Th color="gray.400" borderColor="primary.600" w="120px">Actions</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {invites.map((invite) => (
+                    <ActiveInviteRow
+                      key={invite.id}
+                      invite={invite}
+                      onRevoke={() => handleRevokeInvite(invite.id)}
+                      formatDate={formatDate}
+                      isExpiringSoon={isExpiringSoon}
+                    />
+                  ))}
+                </Tbody>
+              </Table>
+            </Box>
+          )}
+
+          {/* Pagination Controls */}
+          {totalCount > 0 && (
+            <HStack
+              justify="space-between"
+              px={4}
+              py={3}
+              borderTopWidth="1px"
+              borderColor="primary.600"
+            >
+              <HStack spacing={2}>
+                <Text color="gray.400" fontSize="xs">
+                  Showing {Math.min((page - 1) * pageSize + 1, totalCount)}–{Math.min(page * pageSize, totalCount)} of {totalCount}
+                </Text>
+                <Select
+                  size="xs"
+                  value={pageSize}
+                  onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+                  w="70px"
+                  bg="primary.700"
+                  borderColor="primary.600"
+                  color="white"
+                >
+                  <option value={5}>5</option>
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                </Select>
+                <Text color="gray.500" fontSize="xs">per page</Text>
+              </HStack>
+
+              <HStack spacing={1}>
+                <IconButton icon={<FiChevronsLeft />} size="xs" variant="ghost" color="gray.400" onClick={() => setPage(1)} isDisabled={page <= 1} aria-label="First page" _hover={{ color: 'white', bg: 'primary.700' }} />
+                <IconButton icon={<FiChevronLeft />} size="xs" variant="ghost" color="gray.400" onClick={() => setPage((p) => Math.max(1, p - 1))} isDisabled={page <= 1} aria-label="Previous page" _hover={{ color: 'white', bg: 'primary.700' }} />
+                <Text color="gray.300" fontSize="xs" px={2}>Page {page} of {totalPages}</Text>
+                <IconButton icon={<FiChevronRight />} size="xs" variant="ghost" color="gray.400" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} isDisabled={page >= totalPages} aria-label="Next page" _hover={{ color: 'white', bg: 'primary.700' }} />
+                <IconButton icon={<FiChevronsRight />} size="xs" variant="ghost" color="gray.400" onClick={() => setPage(totalPages)} isDisabled={page >= totalPages} aria-label="Last page" _hover={{ color: 'white', bg: 'primary.700' }} />
+              </HStack>
+            </HStack>
+          )}
+        </Box>
       </Box>
     </Box>
   );
 };
 
-// Invite Code Card Component
-const InviteCodeCard = ({ invite, onRevoke }) => {
+// Active Invite Row Component
+const ActiveInviteRow = ({ invite, onRevoke, formatDate, isExpiringSoon }) => {
+  const toast = useToast();
   const inviteLink = organizationsAPI.getInviteLink(invite.invite_code);
   const { hasCopied, onCopy } = useClipboard(invite.invite_code);
   const { hasCopied: hasLinkCopied, onCopy: onLinkCopy } = useClipboard(inviteLink);
 
-  const isExpiringSoon = () => {
-    if (!invite.expires_at) return false;
-    const expiryDate = new Date(invite.expires_at);
-    const now = new Date();
-    const daysUntilExpiry = (expiryDate - now) / (1000 * 60 * 60 * 24);
-    return daysUntilExpiry <= 2;
-  };
-
-  const formatDate = (dateString) => {
-    if (!dateString) return 'Never';
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  };
-
   return (
-    <Box
-      bg="primary.800"
-      borderWidth="1px"
-      borderColor="primary.600"
-      borderRadius="md"
-      p={4}
-      _hover={{ borderColor: 'primary.500' }}
-      transition="all 0.2s"
-    >
-      <VStack spacing={3} align="stretch">
-        {/* Invite Code */}
-        <InputGroup size="md">
-          <Input
-            value={invite.invite_code}
-            readOnly
-            fontFamily="mono"
-            fontWeight="bold"
-            bg="primary.700"
-            borderColor="primary.600"
-            color="white"
-            pr="4.5rem"
+    <Tr _hover={{ bg: 'primary.700' }} transition="background 0.15s">
+      {/* Invite Code */}
+      <Td borderColor="primary.600">
+        <HStack spacing={2}>
+          <Text fontFamily="mono" fontSize="xs" color="white" fontWeight="bold">
+            {invite.invite_code.substring(0, 12)}...
+          </Text>
+          <IconButton
+            icon={hasCopied ? <FiCheck /> : <FiCopy />}
+            size="xs"
+            variant="ghost"
+            onClick={onCopy}
+            colorScheme={hasCopied ? 'green' : 'gray'}
+            aria-label="Copy code"
           />
-          <InputRightElement width="4.5rem">
-            <IconButton
-              h="1.75rem"
-              size="sm"
-              onClick={onCopy}
-              icon={hasCopied ? <FiCheck /> : <FiCopy />}
-              colorScheme={hasCopied ? 'green' : 'gray'}
-              aria-label="Copy invite code"
-            />
-          </InputRightElement>
-        </InputGroup>
-
-        {/* Metadata */}
-        <HStack justify="space-between" flexWrap="wrap" spacing={2}>
-          <HStack spacing={2} flexWrap="wrap">
-            <Badge colorScheme="blue" fontSize="xs">
-              {invite.invite_type === 'code' ? 'Code' : 'Email'}
-            </Badge>
-            {invite.expires_at && (
-              <Badge colorScheme={isExpiringSoon() ? 'red' : 'gray'} fontSize="xs">
-                Expires {formatDate(invite.expires_at)}
-              </Badge>
-            )}
-            {invite.max_uses && (
-              <Badge colorScheme="purple" fontSize="xs">
-                {invite.used_count}/{invite.max_uses} uses
-              </Badge>
-            )}
-            {!invite.max_uses && (
-              <Badge colorScheme="green" fontSize="xs">
-                Unlimited uses ({invite.used_count} used)
-              </Badge>
-            )}
-          </HStack>
-
-          <HStack spacing={2}>
-            <Button
-              size="sm"
-              variant="ghost"
-              leftIcon={hasLinkCopied ? <FiCheck /> : <FiMail />}
-              onClick={onLinkCopy}
-              colorScheme={hasLinkCopied ? 'green' : 'gray'}
-            >
-              {hasLinkCopied ? 'Copied' : 'Copy Link'}
-            </Button>
-            <IconButton
-              size="sm"
-              icon={<FiX />}
-              onClick={onRevoke}
-              colorScheme="red"
-              variant="ghost"
-              aria-label="Revoke invite"
-            />
-          </HStack>
         </HStack>
-      </VStack>
-    </Box>
+      </Td>
+
+      {/* Type */}
+      <Td borderColor="primary.600">
+        <Badge colorScheme="blue" fontSize="xs">
+          {invite.invite_type === 'code' ? 'Code' : 'Email'}
+        </Badge>
+      </Td>
+
+      {/* Expires */}
+      <Td borderColor="primary.600">
+        {invite.expires_at ? (
+          <Badge colorScheme={isExpiringSoon(invite.expires_at) ? 'red' : 'gray'} fontSize="xs">
+            {formatDate(invite.expires_at)}
+          </Badge>
+        ) : (
+          <Text color="gray.500" fontSize="xs">Never</Text>
+        )}
+      </Td>
+
+      {/* Usage */}
+      <Td borderColor="primary.600">
+        {invite.max_uses ? (
+          <Badge colorScheme="purple" fontSize="xs">
+            {invite.used_count}/{invite.max_uses}
+          </Badge>
+        ) : (
+          <Badge colorScheme="green" fontSize="xs">
+            {invite.used_count} (∞)
+          </Badge>
+        )}
+      </Td>
+
+      {/* Actions */}
+      <Td borderColor="primary.600">
+        <HStack spacing={1}>
+          <Button
+            size="xs"
+            variant="ghost"
+            leftIcon={hasLinkCopied ? <FiCheck /> : <FiMail />}
+            onClick={onLinkCopy}
+            colorScheme={hasLinkCopied ? 'green' : 'gray'}
+          >
+            {hasLinkCopied ? 'Copied' : 'Link'}
+          </Button>
+          <IconButton
+            size="xs"
+            icon={<FiX />}
+            onClick={onRevoke}
+            colorScheme="red"
+            variant="ghost"
+            aria-label="Revoke invite"
+          />
+        </HStack>
+      </Td>
+    </Tr>
   );
 };
 

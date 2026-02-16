@@ -253,7 +253,7 @@ const OrganizationSettings = () => {
                     background: 'transparent',
                   },
                   '&::-webkit-scrollbar-thumb': {
-                    background: '#4A5568',
+                    background: '#2e3238',
                     borderRadius: '3px',
                   },
                 }}

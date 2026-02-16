@@ -35,7 +35,7 @@ const PDFViewer = ({
       h="full"
       overflowY="auto"
       overflowX="hidden"
-      bg="#2a2a2a"
+      bg="#111316"
       display="flex"
       flexDirection="column"
       alignItems="center"
@@ -44,22 +44,22 @@ const PDFViewer = ({
         WebkitOverflowScrolling: 'touch',
         msOverflowStyle: 'auto !important',
         scrollbarWidth: 'thin !important',
-        scrollbarColor: '#B0B0B0 #1E1E1E !important',
+        scrollbarColor: '#3d4148 #090a0b !important',
         '&::-webkit-scrollbar': {
           display: 'block !important',
           width: '8px !important',
-          background: '#3a3a3a',
+          background: '#1a1d21',
         },
         '&::-webkit-scrollbar-track': {
-          background: '#3a3a3a',
+          background: '#1a1d21',
         },
         '&::-webkit-scrollbar-thumb': {
-          background: '#B0B0B0',
+          background: '#3d4148',
           borderRadius: '4px',
-          border: '1px solid #3a3a3a',
+          border: '1px solid #1a1d21',
         },
         '&::-webkit-scrollbar-thumb:hover': {
-          background: '#D0D0D0',
+          background: '#5a5f67',
         },
       }}
     >

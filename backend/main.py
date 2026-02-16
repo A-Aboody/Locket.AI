@@ -28,7 +28,7 @@ from dependencies import (
     get_current_user, require_admin, require_verified_email, require_admin_or_verified_email,
     require_org_member, require_org_admin, require_not_in_org
 )
-from database_models import User, UserRole, UserStatus, Document, Chat, ChatMessage, ChatCitation, Organization, OrganizationMember, OrgRole
+from database_models import User, UserRole, UserStatus, Document, Chat, ChatMessage, ChatCitation, Organization, OrganizationMember, OrgRole, DocumentActivity
 from email_service import email_service
 from verification_service import verification_service
 
@@ -100,7 +100,7 @@ def initialize_database_sync():
             'users', 'documents', 'verification_codes',
             'password_reset_tokens', 'user_groups', 'user_group_members',
             'organizations', 'organization_members', 'organization_invites',
-            'chats', 'chat_messages', 'chat_citations'
+            'document_activities', 'chats', 'chat_messages', 'chat_citations'
         ]
 
         missing_tables = [table for table in required_tables if table not in existing_tables]
@@ -1007,6 +1007,72 @@ def list_documents(
         result.append(doc_dict)
     
     return result
+
+
+# ===================================
+# Recent Activity Endpoints
+# ===================================
+
+@app.get("/api/documents/recent-activity")
+def get_recent_activity(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    limit: int = 6,
+    mode: Optional[str] = None
+):
+    """
+    Get recently viewed/interacted documents for the current user.
+    Returns documents ordered by most recent interaction time.
+    """
+    results = crud.get_recent_activity(db, current_user.id, limit=limit, mode=mode)
+    
+    activity_list = []
+    for doc, last_accessed in results:
+        activity_list.append({
+            "id": doc.id,
+            "filename": doc.filename,
+            "file_type": doc.file_type,
+            "file_size": doc.file_size,
+            "page_count": doc.page_count,
+            "uploaded_at": doc.uploaded_at,
+            "updated_at": doc.updated_at,
+            "uploaded_by_id": doc.uploaded_by_id,
+            "uploaded_by_username": doc.uploaded_by.username if doc.uploaded_by else "Unknown",
+            "visibility": doc.visibility,
+            "user_group_id": doc.user_group_id,
+            "user_group_name": doc.user_group.name if doc.user_group else None,
+            "organization_id": doc.organization_id,
+            "last_accessed": last_accessed
+        })
+    
+    return activity_list
+
+
+@app.post("/api/documents/{document_id}/activity")
+def record_document_activity(
+    document_id: int,
+    activity_type: str = "view",
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Record a document interaction (view, preview, download).
+    Called by the frontend when a user opens/previews/downloads a document.
+    """
+    # Verify document exists
+    document = crud.get_document_by_id(db, document_id)
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found"
+        )
+    
+    # Validate activity type
+    if activity_type not in ("view", "preview", "download"):
+        activity_type = "view"
+    
+    crud.record_document_activity(db, current_user.id, document_id, activity_type)
+    return {"message": "Activity recorded"}
 
 
 @app.get("/api/documents/{document_id}", response_model=schemas.DocumentResponse)
@@ -2091,20 +2157,29 @@ def delete_organization(
 # Organization Member Endpoints
 # ===================================
 
-@app.get("/api/organizations/{org_id}/members", response_model=List[schemas.OrganizationMemberResponse])
+@app.get("/api/organizations/{org_id}/members")
 def get_organization_members(
     org_id: int,
+    page: int = 1,
+    page_size: int = 10,
+    search: Optional[str] = None,
     current_user: User = Depends(require_org_member),
     db: Session = Depends(get_db)
 ):
     """
-    Get all members of an organization
+    Get paginated members of an organization.
+    Supports search by username/email/name.
     Requires: organization membership
     """
-    members = crud.get_organization_members(db, org_id)
+    # Clamp page_size to reasonable bounds
+    page_size = max(1, min(page_size, 100))
+    
+    result = crud.get_organization_members_paginated(
+        db, org_id, page=page, page_size=page_size, search=search
+    )
 
     member_list = []
-    for member in members:
+    for member in result["items"]:
         member_list.append({
             "id": member.id,
             "user_id": member.user_id,
@@ -2116,7 +2191,15 @@ def get_organization_members(
             "invited_by_username": member.invited_by.username if member.invited_by else None
         })
 
-    return member_list
+    return {
+        "items": member_list,
+        "total_count": result["total_count"],
+        "page": result["page"],
+        "page_size": result["page_size"],
+        "total_pages": result["total_pages"],
+        "has_next": result["has_next"],
+        "has_previous": result["has_previous"]
+    }
 
 
 @app.put("/api/organizations/{org_id}/members/{user_id}/role", response_model=schemas.Message)
@@ -2391,15 +2474,19 @@ def send_email_invite(
     }
 
 
-@app.get("/api/organizations/{org_id}/invites", response_model=List[schemas.InviteResponse])
+@app.get("/api/organizations/{org_id}/invites")
 def list_organization_invites(
     org_id: int,
     active_only: bool = True,
+    page: int = 1,
+    page_size: int = 10,
+    invite_type: Optional[str] = None,
     current_user: User = Depends(require_org_admin),
     db: Session = Depends(get_db)
 ):
     """
-    List all invitations for organization
+    List paginated invitations for organization.
+    Supports filtering by active_only and invite_type ('email' or 'code').
     Requires: organization admin
     """
     # Verify organization exists
@@ -2410,17 +2497,23 @@ def list_organization_invites(
             detail="Organization not found"
         )
 
-    # Get invites
-    invites = crud.get_organization_invites(db, org_id, active_only=active_only)
+    # Clamp page_size
+    page_size = max(1, min(page_size, 100))
+
+    # Get paginated invites
+    result = crud.get_organization_invites_paginated(
+        db, org_id, page=page, page_size=page_size,
+        active_only=active_only, invite_type=invite_type
+    )
 
     # Format response
     base_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
-    result = []
-    for invite in invites:
+    invite_list = []
+    for invite in result["items"]:
         invite_link = f"{base_url}/join?code={invite.invite_code}"
         creator = crud.get_user_by_id(db, invite.created_by_id)
 
-        result.append({
+        invite_list.append({
             "id": invite.id,
             "invite_code": invite.invite_code,
             "invite_link": invite_link,
@@ -2434,7 +2527,15 @@ def list_organization_invites(
             "created_by_username": creator.username if creator else "Unknown"
         })
 
-    return result
+    return {
+        "items": invite_list,
+        "total_count": result["total_count"],
+        "page": result["page"],
+        "page_size": result["page_size"],
+        "total_pages": result["total_pages"],
+        "has_next": result["has_next"],
+        "has_previous": result["has_previous"]
+    }
 
 
 @app.delete("/api/organizations/{org_id}/invites/{invite_id}", response_model=schemas.Message)
@@ -2627,73 +2728,6 @@ def join_organization(
         "admin_count": admin_count,
         "settings": org.settings
     }
-
-
-@app.get("/api/organizations/{org_id}/invites", response_model=List[schemas.InviteResponse])
-def get_organization_invites(
-    org_id: int,
-    active_only: bool = True,
-    current_user: User = Depends(require_org_admin),
-    db: Session = Depends(get_db)
-):
-    """
-    Get all invites for an organization
-    Requires: organization admin
-    """
-    invites = crud.get_organization_invites(db, org_id, active_only)
-
-    base_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
-    invite_list = []
-    for invite in invites:
-        creator = crud.get_user_by_id(db, invite.created_by_id)
-        invite_list.append({
-            "id": invite.id,
-            "invite_code": invite.invite_code,
-            "invite_link": f"{base_url}/join?code={invite.invite_code}",
-            "invite_type": invite.invite_type,
-            "email": invite.email,
-            "expires_at": invite.expires_at,
-            "max_uses": invite.max_uses,
-            "used_count": invite.used_count,
-            "is_active": invite.is_active,
-            "created_at": invite.created_at,
-            "created_by_username": creator.username if creator else "Unknown"
-        })
-
-    return invite_list
-
-
-@app.delete("/api/organizations/{org_id}/invites/{invite_id}", response_model=schemas.Message)
-def revoke_invite(
-    org_id: int,
-    invite_id: int,
-    current_user: User = Depends(require_org_admin),
-    db: Session = Depends(get_db)
-):
-    """
-    Revoke (deactivate) an organization invite
-    Requires: organization admin
-    """
-    # Verify invite belongs to this organization
-    invite = db.query(crud.OrganizationInvite).filter(
-        crud.OrganizationInvite.id == invite_id,
-        crud.OrganizationInvite.organization_id == org_id
-    ).first()
-
-    if not invite:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Invite not found"
-        )
-
-    success = crud.revoke_organization_invite(db, invite_id)
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to revoke invite"
-        )
-
-    return {"message": "Invite revoked successfully"}
 
 
 # Add cleanup endpoint (admin only)

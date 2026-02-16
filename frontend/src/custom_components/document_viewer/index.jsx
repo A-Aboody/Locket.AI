@@ -492,7 +492,7 @@ const DocumentViewerInner = ({ documentId, onClose }) => {
                       h="full"
                       overflowY="auto"
                       overflowX="hidden"
-                      bg="#2a2a2a"
+                      bg="#111316"
                       display="flex"
                       flexDirection="column"
                       alignItems="center"

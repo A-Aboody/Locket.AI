@@ -147,16 +147,19 @@ const AllDocumentsPage = () => {
 
   const handleViewDocument = (documentId) => {
     setPreviewDocumentId(documentId);
+    documentsAPI.recordActivity(documentId, 'preview').catch(() => {});
   };
 
   const handleViewDocumentFullScreen = (documentId) => {
     // Open document viewer directly (used for user groups modal)
     setViewingDocumentId(documentId);
+    documentsAPI.recordActivity(documentId, 'view').catch(() => {});
   };
 
   const handleOpenFullViewer = () => {
     if (previewDocumentId) {
       setViewingDocumentId(previewDocumentId);
+      documentsAPI.recordActivity(previewDocumentId, 'view').catch(() => {});
     }
   };
 

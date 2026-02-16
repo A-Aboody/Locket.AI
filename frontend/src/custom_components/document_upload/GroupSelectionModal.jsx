@@ -385,7 +385,7 @@ const GroupSelectionModal = ({
                       border="2px dashed"
                       borderColor="primary.600"
                     >
-                      <FiUsers size={40} color="#4A5568" />
+                      <FiUsers size={40} color="#3d4148" />
                     </Box>
                     <Text color="white" fontWeight="medium">
                       No Groups Yet

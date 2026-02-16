@@ -149,7 +149,7 @@ const SearchResults = ({
             border="2px dashed"
             borderColor="primary.600"
           >
-            <FiSearch size={48} color="#4A5568" />
+            <FiSearch size={48} color="#3d4148" />
           </Box>
           <Text fontSize="lg" color="white" fontWeight="medium">
             No results found

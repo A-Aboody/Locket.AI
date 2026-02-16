@@ -194,7 +194,7 @@ const DocumentList = ({
             border="2px dashed"
             borderColor="primary.600"
           >
-            <FiFile size={48} color="#4A5568" />
+            <FiFile size={48} color="#3d4148" />
           </Box>
           <Text fontSize="lg" color="white" fontWeight="medium">
             {emptyMessage}

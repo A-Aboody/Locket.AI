@@ -352,6 +352,29 @@ class Document(Base):
             return 'Unknown'
 
 
+class DocumentActivity(Base):
+    """Tracks user interactions with documents (views, opens, etc.) for recent activity"""
+    __tablename__ = "document_activities"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    activity_type = Column(String(20), nullable=False, default="view")  # 'view', 'preview', 'download'
+    accessed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+
+    # Relationships
+    user = relationship("User")
+    document = relationship("Document")
+
+    __table_args__ = (
+        Index('ix_doc_activity_user_accessed', 'user_id', 'accessed_at'),
+        Index('ix_doc_activity_user_doc', 'user_id', 'document_id'),
+    )
+
+    def __repr__(self):
+        return f"<DocumentActivity(user_id={self.user_id}, doc_id={self.document_id}, type='{self.activity_type}')>"
+
+
 class Chat(Base):
     """Chat session model for storing conversations"""
     __tablename__ = "chats"

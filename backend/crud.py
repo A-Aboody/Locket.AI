@@ -10,7 +10,7 @@ from sqlalchemy import or_, and_
 from database_models import (
     User, UserRole, UserStatus, Document, UserGroup, UserGroupMember,
     VerificationCode, PasswordResetToken, Organization, OrganizationMember,
-    OrganizationInvite, OrgRole
+    OrganizationInvite, OrgRole, DocumentActivity
 )
 from schemas import UserRegister
 from typing import Optional, List, Dict
@@ -1780,3 +1780,214 @@ def get_visible_groups(db: Session, user_id: int) -> List[UserGroup]:
             return list(all_groups_dict.values())
 
     return user_groups
+
+
+# ===================================
+# Document Activity Tracking
+# ===================================
+
+def record_document_activity(
+    db: Session,
+    user_id: int,
+    document_id: int,
+    activity_type: str = "view"
+) -> DocumentActivity:
+    """
+    Record a document interaction (view, preview, download).
+    Updates existing record if same user+doc+type exists within last minute,
+    otherwise creates a new record.
+    """
+    from datetime import timedelta
+    
+    # Avoid duplicate entries within 1 minute (e.g. rapid re-opens)
+    one_minute_ago = datetime.now(timezone.utc) - timedelta(minutes=1)
+    existing = db.query(DocumentActivity).filter(
+        DocumentActivity.user_id == user_id,
+        DocumentActivity.document_id == document_id,
+        DocumentActivity.activity_type == activity_type,
+        DocumentActivity.accessed_at >= one_minute_ago
+    ).first()
+    
+    if existing:
+        # Update the timestamp instead of creating a duplicate
+        existing.accessed_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(existing)
+        return existing
+    
+    activity = DocumentActivity(
+        user_id=user_id,
+        document_id=document_id,
+        activity_type=activity_type,
+        accessed_at=datetime.now(timezone.utc)
+    )
+    db.add(activity)
+    db.commit()
+    db.refresh(activity)
+    return activity
+
+
+def get_recent_activity(
+    db: Session,
+    user_id: int,
+    limit: int = 6,
+    mode: Optional[str] = None
+) -> List[Dict]:
+    """
+    Get recently accessed documents for a user, ordered by most recent interaction.
+    Returns unique documents (most recent activity per document).
+    
+    Args:
+        db: Database session
+        user_id: User ID
+        limit: Max number of documents to return
+        mode: 'personal' or 'organization' to filter scope
+    
+    Returns:
+        List of document dicts with activity info
+    """
+    from sqlalchemy import func, desc
+    
+    # Subquery: get the most recent activity per document for this user
+    latest_activity = db.query(
+        DocumentActivity.document_id,
+        func.max(DocumentActivity.accessed_at).label('last_accessed'),
+        DocumentActivity.activity_type
+    ).filter(
+        DocumentActivity.user_id == user_id
+    ).group_by(
+        DocumentActivity.document_id,
+        DocumentActivity.activity_type
+    ).subquery()
+    
+    # Get the single most recent activity per document
+    latest_per_doc = db.query(
+        latest_activity.c.document_id,
+        func.max(latest_activity.c.last_accessed).label('last_accessed')
+    ).group_by(
+        latest_activity.c.document_id
+    ).subquery()
+    
+    # Join with documents to get full info
+    query = db.query(Document, latest_per_doc.c.last_accessed).join(
+        latest_per_doc,
+        Document.id == latest_per_doc.c.document_id
+    )
+    
+    # Apply mode filtering
+    user = get_user_by_id(db, user_id)
+    if mode == 'personal':
+        query = query.filter(
+            Document.uploaded_by_id == user_id,
+            Document.visibility == 'private'
+        )
+    elif mode == 'organization' and user and user.organization_id:
+        query = query.filter(
+            or_(
+                Document.organization_id == user.organization_id,
+                and_(Document.uploaded_by_id == user_id, Document.visibility == 'private')
+            )
+        )
+    
+    # Order by most recently accessed and limit
+    results = query.order_by(desc(latest_per_doc.c.last_accessed)).limit(limit).all()
+    
+    return results
+
+
+# ===================================
+# Paginated Organization Queries
+# ===================================
+
+def get_organization_members_paginated(
+    db: Session,
+    org_id: int,
+    page: int = 1,
+    page_size: int = 10,
+    search: Optional[str] = None
+) -> Dict:
+    """
+    Get paginated members of an organization with optional search.
+    
+    Returns:
+        Dict with 'items', 'total_count', 'page', 'page_size', 'total_pages'
+    """
+    query = db.query(OrganizationMember).filter(
+        OrganizationMember.organization_id == org_id
+    ).options(joinedload(OrganizationMember.user))
+    
+    # Apply search filter on username or email
+    if search:
+        search_term = f"%{search}%"
+        query = query.join(OrganizationMember.user).filter(
+            or_(
+                User.username.ilike(search_term),
+                User.email.ilike(search_term),
+                User.full_name.ilike(search_term)
+            )
+        )
+    
+    total_count = query.count()
+    total_pages = max(1, (total_count + page_size - 1) // page_size)
+    
+    # Clamp page
+    page = max(1, min(page, total_pages))
+    offset = (page - 1) * page_size
+    
+    items = query.order_by(OrganizationMember.joined_at.asc()).offset(offset).limit(page_size).all()
+    
+    return {
+        "items": items,
+        "total_count": total_count,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+        "has_next": page < total_pages,
+        "has_previous": page > 1
+    }
+
+
+def get_organization_invites_paginated(
+    db: Session,
+    org_id: int,
+    page: int = 1,
+    page_size: int = 10,
+    active_only: bool = True,
+    invite_type: Optional[str] = None
+) -> Dict:
+    """
+    Get paginated invites for an organization.
+    
+    Args:
+        invite_type: 'email', 'code', or None for all
+    
+    Returns:
+        Dict with 'items', 'total_count', 'page', 'page_size', 'total_pages'
+    """
+    query = db.query(OrganizationInvite).filter(
+        OrganizationInvite.organization_id == org_id
+    )
+    
+    if active_only:
+        query = query.filter(OrganizationInvite.is_active == True)
+    
+    if invite_type:
+        query = query.filter(OrganizationInvite.invite_type == invite_type)
+    
+    total_count = query.count()
+    total_pages = max(1, (total_count + page_size - 1) // page_size)
+    
+    page = max(1, min(page, total_pages))
+    offset = (page - 1) * page_size
+    
+    items = query.order_by(OrganizationInvite.created_at.desc()).offset(offset).limit(page_size).all()
+    
+    return {
+        "items": items,
+        "total_count": total_count,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+        "has_next": page < total_pages,
+        "has_previous": page > 1
+    }
