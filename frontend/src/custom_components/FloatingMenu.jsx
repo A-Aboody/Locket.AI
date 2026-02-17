@@ -6,16 +6,21 @@ import {
   Button,
   useOutsideClick,
   Slide,
+  Divider,
 } from '@chakra-ui/react';
-import { FiMenu, FiUser, FiSettings, FiLogOut, FiUsers } from 'react-icons/fi';
+import { FiMenu, FiUser, FiSettings, FiLogOut, FiUsers, FiTrash2, FiFolder } from 'react-icons/fi';
 import { useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import UserGroupsModal from './UserGroupsModal';
-import { canSwitchModes } from '../utils/modeUtils';
+import FoldersModal from './FoldersModal';
+import { canSwitchModes, getUserMode } from '../utils/modeUtils';
 
 const FloatingMenu = ({ onProfile, onSettings, onLogout, onViewDocument }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [showUserGroups, setShowUserGroups] = useState(false);
+  const [showFolders, setShowFolders] = useState(false);
   const ref = useRef();
+  const navigate = useNavigate();
 
   // Check if user is in an organization (can manage groups)
   const userInOrganization = canSwitchModes();
@@ -49,6 +54,16 @@ const FloatingMenu = ({ onProfile, onSettings, onLogout, onViewDocument }) => {
     setShowUserGroups(true);
   };
 
+  const handleTrash = () => {
+    setIsOpen(false);
+    navigate('/trash');
+  };
+
+  const handleFolders = () => {
+    setIsOpen(false);
+    setShowFolders(true);
+  };
+
   return (
     <>
       <Box ref={ref} position="fixed" bottom={6} left={6} zIndex={1000}>
@@ -56,7 +71,7 @@ const FloatingMenu = ({ onProfile, onSettings, onLogout, onViewDocument }) => {
           {/* Menu Items */}
           <Slide direction="bottom" in={isOpen} style={{ position: 'absolute' }}>
             <VStack
-              spacing={2}
+              spacing={1}
               position="absolute"
               bottom="70px"
               left="0"
@@ -66,7 +81,7 @@ const FloatingMenu = ({ onProfile, onSettings, onLogout, onViewDocument }) => {
               shadow="2xl"
               border="1px"
               borderColor="primary.600"
-              minW="150px"
+              minW="170px"
               pointerEvents={isOpen ? 'auto' : 'none'}
               opacity={isOpen ? 1 : 0}
               transition="opacity 0.2s ease-in-out"
@@ -78,12 +93,29 @@ const FloatingMenu = ({ onProfile, onSettings, onLogout, onViewDocument }) => {
                 justifyContent="flex-start"
                 variant="ghost"
                 color="gray.200"
+                size="sm"
                 _hover={{
                   bg: 'accent.500',
                   color: 'white',
                 }}
               >
                 Profile
+              </Button>
+
+              <Button
+                leftIcon={<FiFolder />}
+                onClick={handleFolders}
+                w="full"
+                justifyContent="flex-start"
+                variant="ghost"
+                color="gray.200"
+                size="sm"
+                _hover={{
+                  bg: 'accent.500',
+                  color: 'white',
+                }}
+              >
+                Folders
               </Button>
 
               {/* Only show Manage Groups for users in an organization */}
@@ -95,6 +127,7 @@ const FloatingMenu = ({ onProfile, onSettings, onLogout, onViewDocument }) => {
                   justifyContent="flex-start"
                   variant="ghost"
                   color="gray.200"
+                  size="sm"
                   _hover={{
                     bg: 'accent.500',
                     color: 'white',
@@ -105,12 +138,31 @@ const FloatingMenu = ({ onProfile, onSettings, onLogout, onViewDocument }) => {
               )}
 
               <Button
+                leftIcon={<FiTrash2 />}
+                onClick={handleTrash}
+                w="full"
+                justifyContent="flex-start"
+                variant="ghost"
+                color="gray.200"
+                size="sm"
+                _hover={{
+                  bg: 'accent.500',
+                  color: 'white',
+                }}
+              >
+                Trash
+              </Button>
+
+              <Divider borderColor="primary.600" />
+
+              <Button
                 leftIcon={<FiSettings />}
                 onClick={handleSettings}
                 w="full"
                 justifyContent="flex-start"
                 variant="ghost"
                 color="gray.200"
+                size="sm"
                 _hover={{
                   bg: 'accent.500',
                   color: 'white',
@@ -126,6 +178,7 @@ const FloatingMenu = ({ onProfile, onSettings, onLogout, onViewDocument }) => {
                 justifyContent="flex-start"
                 variant="ghost"
                 color="red.400"
+                size="sm"
                 _hover={{
                   bg: 'red.500',
                   color: 'white',
@@ -164,6 +217,18 @@ const FloatingMenu = ({ onProfile, onSettings, onLogout, onViewDocument }) => {
         isOpen={showUserGroups}
         onClose={() => setShowUserGroups(false)}
         onViewDocument={onViewDocument}
+      />
+
+      {/* Folders Modal */}
+      <FoldersModal
+        isOpen={showFolders}
+        onClose={() => setShowFolders(false)}
+        onSelectFolder={(folderId, folderName) => {
+          navigate('/all-documents', { state: { selectedFolderId: folderId, selectedFolderName: folderName } });
+          setShowFolders(false);
+        }}
+        onViewDocument={onViewDocument}
+        mode={getUserMode()}
       />
     </>
   );

@@ -28,7 +28,7 @@ from dependencies import (
     get_current_user, require_admin, require_verified_email, require_admin_or_verified_email,
     require_org_member, require_org_admin, require_not_in_org
 )
-from database_models import User, UserRole, UserStatus, Document, Chat, ChatMessage, ChatCitation, Organization, OrganizationMember, OrgRole, DocumentActivity
+from database_models import User, UserRole, UserStatus, Document, Chat, ChatMessage, ChatCitation, Organization, OrganizationMember, OrgRole, DocumentActivity, Folder
 from email_service import email_service
 from verification_service import verification_service
 
@@ -163,9 +163,77 @@ def initialize_database_sync():
                     logger.error(traceback.format_exc())
                     # Don't fail startup, just log the error
             else:
-                logger.info("✓ Schema is up to date")
+                logger.info("✓ Users schema is up to date")
         else:
-            logger.info("✓ No schema migrations needed")
+            logger.info("✓ No user schema migrations needed")
+
+        # --- Documents table migrations ---
+        if 'documents' in existing_tables:
+            doc_columns = [col['name'] for col in inspector.get_columns('documents')]
+            doc_migrations_needed = []
+
+            if 'is_trashed' not in doc_columns:
+                doc_migrations_needed.append(("is_trashed", "ALTER TABLE documents ADD COLUMN is_trashed BOOLEAN NOT NULL DEFAULT false"))
+            if 'trashed_at' not in doc_columns:
+                doc_migrations_needed.append(("trashed_at", "ALTER TABLE documents ADD COLUMN trashed_at TIMESTAMP WITHOUT TIME ZONE"))
+            if 'trashed_by_id' not in doc_columns:
+                doc_migrations_needed.append(("trashed_by_id", "ALTER TABLE documents ADD COLUMN trashed_by_id INTEGER REFERENCES users(id) ON DELETE SET NULL"))
+            if 'folder_id' not in doc_columns:
+                # Ensure folders table exists first
+                if 'folders' not in existing_tables:
+                    try:
+                        with engine.begin() as conn:
+                            conn.execute(text(
+                                "CREATE TABLE IF NOT EXISTS folders ("
+                                "id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, "
+                                "parent_id INTEGER REFERENCES folders(id) ON DELETE CASCADE, "
+                                "owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+                                "organization_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL, "
+                                "created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT (NOW() AT TIME ZONE 'utc'), "
+                                "updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'utc'))"
+                            ))
+                        logger.info("✓ Created folders table")
+                    except Exception as e:
+                        logger.error(f"✗ Failed to create folders table: {e}")
+                doc_migrations_needed.append(("folder_id", "ALTER TABLE documents ADD COLUMN folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL"))
+
+            if doc_migrations_needed:
+                try:
+                    with engine.begin() as conn:
+                        for col_name, sql in doc_migrations_needed:
+                            logger.info(f"Adding missing {col_name} column to documents table...")
+                            conn.execute(text(sql))
+                            logger.info(f"✓ Added {col_name} column")
+                    logger.info("✓ Documents schema migration completed")
+                except Exception as e:
+                    logger.error(f"✗ Documents schema migration failed: {e}")
+                    logger.error(traceback.format_exc())
+            else:
+                logger.info("✓ Documents schema is up to date")
+
+        # --- Folders table migrations ---
+        if 'folders' in existing_tables:
+            folder_columns = [col['name'] for col in inspector.get_columns('folders')]
+            folder_migrations_needed = []
+
+            if 'scope' not in folder_columns:
+                folder_migrations_needed.append(("scope", "ALTER TABLE folders ADD COLUMN scope VARCHAR(20) NOT NULL DEFAULT 'private'"))
+            if 'group_id' not in folder_columns:
+                folder_migrations_needed.append(("group_id", "ALTER TABLE folders ADD COLUMN group_id INTEGER REFERENCES user_groups(id) ON DELETE SET NULL"))
+
+            if folder_migrations_needed:
+                try:
+                    with engine.begin() as conn:
+                        for col_name, sql in folder_migrations_needed:
+                            logger.info(f"Adding missing {col_name} column to folders table...")
+                            conn.execute(text(sql))
+                            logger.info(f"✓ Added {col_name} column")
+                    logger.info("✓ Folders schema migration completed")
+                except Exception as e:
+                    logger.error(f"✗ Folders schema migration failed: {e}")
+                    logger.error(traceback.format_exc())
+            else:
+                logger.info("✓ Folders schema is up to date")
 
         logger.info("✓ Schema update check complete")
 
@@ -654,7 +722,8 @@ def search_users(
         db,
         query,
         exclude_user_id=exclude_user_id,
-        include_inactive=include_inactive
+        include_inactive=include_inactive,
+        organization_id=current_user.organization_id
     )
     return users
 
@@ -789,11 +858,60 @@ def activate_user(
 
 # Document routes (Enhanced with verification requirements)
 
+def extract_file_extension(filename_or_content_type: Optional[str]) -> Optional[str]:
+    """
+    Extract file extension from either filename or content-type.
+    Returns just the extension (without the dot), in lowercase.
+    Examples: "pdf", "docx", "txt"
+    """
+    if not filename_or_content_type:
+        return None
+    
+    # Known MIME type to extension mapping for common document types
+    MIME_TO_EXT = {
+        'application/pdf': 'pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+        'application/msword': 'doc',
+        'text/plain': 'txt',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+        'application/vnd.ms-excel': 'xls',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+        'application/vnd.ms-powerpoint': 'ppt',
+        'image/png': 'png',
+        'image/jpeg': 'jpg',
+        'application/rtf': 'rtf',
+    }
+    
+    # If it looks like a content-type (contains '/')
+    if '/' in filename_or_content_type:
+        # Check known MIME types first
+        mime_lower = filename_or_content_type.lower().strip()
+        if mime_lower in MIME_TO_EXT:
+            return MIME_TO_EXT[mime_lower]
+        # Fallback: extract extension from content-type: "application/pdf" -> "pdf"
+        ext = mime_lower.split('/')[-1]
+        if '.' in ext:
+            ext = ext.split('.')[-1]
+        return ext
+    
+    # If it looks like a filename (contains '.')
+    if '.' in filename_or_content_type:
+        ext = filename_or_content_type.rsplit('.', 1)[-1].lower()
+        return ext
+    
+    # Otherwise it's already a file extension, normalize it
+    ext = filename_or_content_type.lower()
+    # Remove leading dot if present
+    if ext.startswith('.'):
+        ext = ext[1:]
+    return ext
+
 @app.post("/api/documents/upload", response_model=schemas.DocumentUploadResponse)
 async def upload_document(
     file: UploadFile = File(...),
     visibility: str = Form("private"),
     user_group_id: Optional[int] = Form(None),
+    folder_id: Optional[int] = Form(None),
     current_user: User = Depends(require_verified_email),  # Require verified email for upload
     db: Session = Depends(get_db)
 ):
@@ -904,6 +1022,20 @@ async def upload_document(
         embedding = None
         content_preview = content[:500] if content else ""
     
+    # Validate folder_id if provided
+    if folder_id is not None:
+        target_folder = crud.get_folder_by_id(db, folder_id)
+        if not target_folder:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Target folder not found"
+            )
+        if not crud.can_user_access_folder(db, current_user.id, folder_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have access to the target folder"
+            )
+
     # Determine organization_id for the document
     # Auto-set when user is in an org and visibility is public or organization
     doc_organization_id = None
@@ -915,7 +1047,7 @@ async def upload_document(
         document = Document(
             filename=file.filename,
             file_path=db_file_path,  # Use normalized path with forward slashes
-            file_type=file.content_type or file_extension,
+            file_type=extract_file_extension(file.content_type or file.filename),
             file_size=file_size,
             content=content,
             page_count=page_count,
@@ -924,7 +1056,8 @@ async def upload_document(
             uploaded_by_id=current_user.id,
             visibility=visibility,
             user_group_id=user_group_id if visibility == 'group' else None,
-            organization_id=doc_organization_id
+            organization_id=doc_organization_id,
+            folder_id=folder_id
         )
         
         db.add(document)
@@ -960,7 +1093,11 @@ def list_documents(
     skip: int = 0,
     limit: int = 100,
     user_only: bool = False,
-    mode: Optional[str] = None
+    mode: Optional[str] = None,
+    file_type: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    folder_id: Optional[int] = None
 ):
     """
     List documents - Can list all documents or only user's documents
@@ -986,6 +1123,42 @@ def list_documents(
             # Legacy/default: all visible documents
             documents = crud.get_visible_documents(db, current_user.id, skip=skip, limit=limit)
     
+    # Apply folder filter: documents belong to exactly one location
+    # When folder_id is specified, show only documents in that folder
+    # When folder_id is None (root), show only documents NOT in any folder
+    if folder_id is not None:
+        documents = [d for d in documents if d.folder_id == folder_id]
+    else:
+        documents = [d for d in documents if d.folder_id is None]
+    if file_type:
+        ft = file_type.lower()
+        # Handle both old and new file_type formats (normalize on comparison)
+        # Also check filename extension as fallback for legacy data
+        def matches_file_type(d):
+            if d.file_type and extract_file_extension(d.file_type) == ft:
+                return True
+            # Fallback: check the actual filename extension
+            if d.filename:
+                filename_ext = d.filename.rsplit('.', 1)[-1].lower() if '.' in d.filename else ''
+                if filename_ext == ft:
+                    return True
+            return False
+        documents = [d for d in documents if matches_file_type(d)]
+    if date_from:
+        from datetime import datetime as dt
+        try:
+            df = dt.fromisoformat(date_from)
+            documents = [d for d in documents if d.uploaded_at and d.uploaded_at >= df]
+        except ValueError:
+            pass
+    if date_to:
+        from datetime import datetime as dt
+        try:
+            dto = dt.fromisoformat(date_to)
+            documents = [d for d in documents if d.uploaded_at and d.uploaded_at <= dto]
+        except ValueError:
+            pass
+
     # Add uploader username to each document
     result = []
     for doc in documents:
@@ -1002,10 +1175,11 @@ def list_documents(
             "visibility": doc.visibility,
             "user_group_id": doc.user_group_id,
             "user_group_name": doc.user_group.name if doc.user_group else None,
-            "organization_id": doc.organization_id
+            "organization_id": doc.organization_id,
+            "folder_id": doc.folder_id
         }
         result.append(doc_dict)
-    
+
     return result
 
 
@@ -1335,17 +1509,10 @@ def delete_document(
             detail="You don't have permission to delete this document"
         )
     
-    # Delete file from disk
-    try:
-        if os.path.exists(document.file_path):
-            os.remove(document.file_path)
-    except Exception as e:
-        logger.warning(f"Failed to delete file: {e}")
-    
-    # Delete database record
-    crud.delete_document(db, document_id)
-    
-    return {"message": "Document deleted successfully"}
+    # Soft delete - move to trash
+    crud.soft_delete_document(db, document_id, current_user.id)
+
+    return {"message": "Document moved to trash"}
 
 
 @app.put("/api/documents/{document_id}/visibility", response_model=schemas.DocumentResponse)
@@ -1448,6 +1615,408 @@ def update_document_visibility(
         "visibility": updated_document.visibility,
         "user_group_id": updated_document.user_group_id,
         "user_group_name": updated_document.user_group.name if updated_document.user_group else None
+    }
+
+
+# ===================================
+# Trash Routes
+# ===================================
+
+@app.get("/api/trash")
+def list_trashed_documents(
+    skip: int = 0,
+    limit: int = 100,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List trashed documents for the current user"""
+    documents = crud.get_trashed_documents(db, current_user.id, skip=skip, limit=limit)
+
+    return [
+        {
+            "id": doc.id,
+            "filename": doc.filename,
+            "file_type": doc.file_type,
+            "file_size": doc.file_size,
+            "page_count": doc.page_count,
+            "uploaded_at": doc.uploaded_at,
+            "trashed_at": doc.trashed_at,
+            "uploaded_by_id": doc.uploaded_by_id,
+            "uploaded_by_username": doc.uploaded_by.username if doc.uploaded_by else "Unknown",
+            "visibility": doc.visibility,
+            "folder_id": doc.folder_id,
+            "folder_name": doc.folder.name if doc.folder else None,
+        }
+        for doc in documents
+    ]
+
+
+@app.post("/api/trash/{document_id}/restore", response_model=schemas.Message)
+def restore_document(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Restore a document from trash"""
+    document = crud.get_document_by_id(db, document_id)
+
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    if not document.is_trashed:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Document is not in trash")
+
+    if current_user.role != UserRole.ADMIN and document.uploaded_by_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to restore this document")
+
+    crud.restore_document(db, document_id)
+    return {"message": "Document restored successfully"}
+
+
+@app.delete("/api/trash/empty", response_model=schemas.Message)
+def empty_trash(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Empty all trashed documents for the current user"""
+    trashed_docs = crud.empty_trash(db, current_user.id)
+
+    # Delete files from disk
+    for doc in trashed_docs:
+        try:
+            if os.path.exists(doc.file_path):
+                os.remove(doc.file_path)
+        except Exception as e:
+            logger.warning(f"Failed to delete file from disk: {e}")
+
+    # Now delete from database
+    for doc in trashed_docs:
+        db.delete(doc)
+    db.commit()
+
+    return {"message": f"{len(trashed_docs)} document(s) permanently deleted"}
+
+
+@app.delete("/api/trash/{document_id}", response_model=schemas.Message)
+def permanently_delete_document(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Permanently delete a document from trash"""
+    document = crud.get_document_by_id(db, document_id)
+
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    if not document.is_trashed:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Document must be in trash before permanent deletion")
+
+    if current_user.role != UserRole.ADMIN and document.uploaded_by_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to delete this document")
+
+    # Delete file from disk
+    try:
+        if os.path.exists(document.file_path):
+            os.remove(document.file_path)
+    except Exception as e:
+        logger.warning(f"Failed to delete file from disk: {e}")
+
+    crud.permanently_delete_document(db, document_id)
+    return {"message": "Document permanently deleted"}
+
+
+# ===================================
+# Folder Routes
+# ===================================
+
+def _folder_response(f, db):
+    """Build folder response dict with scope/group info"""
+    group_name = None
+    if f.group_id and f.group:
+        group_name = f.group.name
+    elif f.group_id:
+        from database_models import UserGroup
+        grp = db.query(UserGroup).filter(UserGroup.id == f.group_id).first()
+        group_name = grp.name if grp else None
+    return {
+        "id": f.id,
+        "name": f.name,
+        "parent_id": f.parent_id,
+        "owner_id": f.owner_id,
+        "organization_id": f.organization_id,
+        "scope": f.scope or 'private',
+        "group_id": f.group_id,
+        "group_name": group_name,
+        "created_at": f.created_at,
+        "updated_at": f.updated_at,
+        "document_count": db.query(Document).filter(Document.folder_id == f.id, Document.is_trashed == False).count(),
+        "subfolder_count": db.query(Folder).filter(Folder.parent_id == f.id).count(),
+    }
+
+
+@app.post("/api/folders", response_model=schemas.FolderResponse)
+def create_folder(
+    folder_data: schemas.FolderCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new folder"""
+    scope = folder_data.scope or 'private'
+    group_id = folder_data.group_id
+
+    # If parent_id is provided, verify access and inherit scope
+    if folder_data.parent_id:
+        parent = crud.get_folder_by_id(db, folder_data.parent_id)
+        if not parent:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Parent folder not found")
+        if not crud.can_user_access_folder(db, current_user.id, folder_data.parent_id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have access to the parent folder")
+        # Inherit scope/group from parent
+        scope = parent.scope
+        group_id = parent.group_id
+
+    # Validate organization scope
+    if scope == 'organization':
+        if not current_user.organization_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You must be in an organization to create organization folders")
+        if group_id and not crud.is_user_in_group(db, current_user.id, group_id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not a member of the specified group")
+
+    folder = crud.create_folder(
+        db,
+        name=folder_data.name,
+        owner_id=current_user.id,
+        parent_id=folder_data.parent_id,
+        organization_id=current_user.organization_id,
+        scope=scope,
+        group_id=group_id,
+    )
+
+    resp = _folder_response(folder, db)
+    resp["document_count"] = 0
+    resp["subfolder_count"] = 0
+    return resp
+
+
+@app.get("/api/folders")
+def list_folders(
+    parent_id: Optional[int] = None,
+    search: Optional[str] = None,
+    mode: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List folders at a given level (root if no parent_id), optionally search by name"""
+    effective_mode = mode or 'personal'
+
+    if search and search.strip():
+        # Search folders visible to user by name
+        all_folders = db.query(Folder).filter(
+            Folder.name.ilike(f"%{search.strip()}%")
+        ).order_by(Folder.name).limit(50).all()
+        # Filter by visibility
+        visible_ids = set()
+        for f in all_folders:
+            if crud.can_user_access_folder(db, current_user.id, f.id):
+                visible_ids.add(f.id)
+        folders = [f for f in all_folders if f.id in visible_ids][:20]
+    else:
+        folders = crud.get_folders_for_user(db, current_user.id, parent_id=parent_id, mode=effective_mode)
+
+    return [_folder_response(f, db) for f in folders]
+
+
+@app.get("/api/folders/{folder_id}", response_model=schemas.FolderWithContentsResponse)
+def get_folder(
+    folder_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get folder details with contents"""
+    folder = crud.get_folder_by_id(db, folder_id)
+
+    if not folder:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found")
+
+    if not crud.can_user_access_folder(db, current_user.id, folder_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have access to this folder")
+
+    children = db.query(Folder).filter(Folder.parent_id == folder_id).order_by(Folder.name).all()
+    # Filter children by access
+    visible_children = [c for c in children if crud.can_user_access_folder(db, current_user.id, c.id)]
+    breadcrumb = crud.get_folder_breadcrumb(db, folder_id)
+
+    resp = _folder_response(folder, db)
+    resp["subfolder_count"] = len(visible_children)
+    resp["children"] = [_folder_response(c, db) for c in visible_children]
+    resp["breadcrumb"] = breadcrumb
+    return resp
+
+
+@app.put("/api/folders/{folder_id}", response_model=schemas.FolderResponse)
+def update_folder(
+    folder_id: int,
+    folder_data: schemas.FolderUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Rename a folder"""
+    folder = crud.get_folder_by_id(db, folder_id)
+
+    if not folder:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found")
+
+    if not crud.can_user_modify_folder(db, current_user.id, folder_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to rename this folder")
+
+    updated = crud.rename_folder(db, folder_id, folder_data.name)
+    return _folder_response(updated, db)
+
+
+@app.delete("/api/folders/{folder_id}", response_model=schemas.Message)
+def delete_folder(
+    folder_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a folder (documents and subfolders move to parent)"""
+    folder = crud.get_folder_by_id(db, folder_id)
+
+    if not folder:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found")
+
+    if not crud.can_user_modify_folder(db, current_user.id, folder_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to delete this folder")
+
+    crud.delete_folder(db, folder_id)
+    return {"message": "Folder deleted successfully"}
+
+
+@app.put("/api/documents/{document_id}/move", response_model=schemas.Message)
+def move_document(
+    document_id: int,
+    move_data: schemas.DocumentMoveRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Move a document to a folder (or root if folder_id is null)"""
+    document = crud.get_document_by_id(db, document_id)
+
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    if current_user.role != UserRole.ADMIN and document.uploaded_by_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to move this document")
+
+    # Validate target folder if provided
+    if move_data.folder_id is not None:
+        target_folder = crud.get_folder_by_id(db, move_data.folder_id)
+        if not target_folder:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target folder not found")
+        if target_folder.owner_id != current_user.id and current_user.role != UserRole.ADMIN:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't own the target folder")
+
+    crud.move_document_to_folder(db, document_id, move_data.folder_id)
+    return {"message": "Document moved successfully"}
+
+
+# ===================================
+# Document Rename & Copy Routes
+# ===================================
+
+@app.put("/api/documents/{document_id}/rename", response_model=schemas.DocumentResponse)
+def rename_document(
+    document_id: int,
+    rename_data: schemas.DocumentRenameRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Rename a document"""
+    document = crud.get_document_by_id(db, document_id)
+
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    if current_user.role != UserRole.ADMIN and document.uploaded_by_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to rename this document")
+
+    updated = crud.rename_document(db, document_id, rename_data.filename)
+
+    return {
+        "id": updated.id,
+        "filename": updated.filename,
+        "file_type": updated.file_type,
+        "file_size": updated.file_size,
+        "page_count": updated.page_count,
+        "uploaded_at": updated.uploaded_at,
+        "updated_at": updated.updated_at,
+        "uploaded_by_id": updated.uploaded_by_id,
+        "uploaded_by_username": updated.uploaded_by.username if updated.uploaded_by else "Unknown",
+        "visibility": updated.visibility,
+        "user_group_id": updated.user_group_id,
+        "user_group_name": updated.user_group.name if updated.user_group else None,
+        "folder_id": updated.folder_id,
+        "folder_name": updated.folder.name if updated.folder else None,
+    }
+
+
+@app.post("/api/documents/{document_id}/copy", response_model=schemas.DocumentResponse)
+def copy_document(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Make a copy of a document"""
+    document = crud.get_document_by_id(db, document_id)
+
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    # Check access
+    if not crud.can_user_access_document(db, current_user.id, document_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have access to this document")
+
+    # Copy the file on disk
+    import shutil
+    file_ext = os.path.splitext(document.file_path)[1]
+    new_file_path = os.path.join(config.UPLOAD_DIR, f"{uuid.uuid4()}{file_ext}")
+    new_file_path = new_file_path.replace("\\", "/")
+
+    try:
+        shutil.copy2(document.file_path, new_file_path)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to copy file: {str(e)}")
+
+    # Create new document record
+    copy_filename = f"Copy of {document.filename}"
+    new_doc = crud.create_document(
+        db,
+        filename=copy_filename,
+        file_path=new_file_path,
+        file_type=document.file_type,
+        file_size=document.file_size,
+        content=document.content,
+        page_count=document.page_count,
+        user_id=current_user.id,
+        visibility='private',
+    )
+
+    # Copy embedding if it exists
+    if document.embedding:
+        crud.update_document_embedding(db, new_doc.id, document.embedding, document.content_preview or "")
+
+    return {
+        "id": new_doc.id,
+        "filename": new_doc.filename,
+        "file_type": new_doc.file_type,
+        "file_size": new_doc.file_size,
+        "page_count": new_doc.page_count,
+        "uploaded_at": new_doc.uploaded_at,
+        "updated_at": new_doc.updated_at,
+        "uploaded_by_id": new_doc.uploaded_by_id,
+        "uploaded_by_username": current_user.username,
+        "visibility": new_doc.visibility,
     }
 
 
@@ -1660,13 +2229,18 @@ def create_user_group(
     Create a new user group
     Requires verified email address
     """
-    # Validate that all member IDs exist
+    # Validate that all member IDs exist and are in the same organization
     for user_id in group_data.member_ids:
         user = crud.get_user_by_id(db, user_id)
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"User with ID {user_id} not found"
+            )
+        if user.organization_id != current_user.organization_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"User '{user.username}' is not in your organization"
             )
     
     group = crud.create_user_group(db, group_data, current_user.id)
@@ -1812,6 +2386,21 @@ def add_group_member(
             detail="User not found"
         )
 
+    # Enforce organization membership: user must be in the same organization
+    if current_user.organization_id:
+        if user_to_add.organization_id != current_user.organization_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Can only add members from your organization"
+            )
+    else:
+        # Personal mode: cannot add users who are not in the same org (or no org)
+        if user_to_add.organization_id != current_user.organization_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Can only add members from your organization"
+            )
+
     # Add member
     success = crud.add_user_to_group(db, member_data.user_id, group_id)
     if not success:
@@ -1935,6 +2524,43 @@ def get_group_documents(
         })
 
     return formatted_docs
+
+
+@app.get("/api/user-groups/{group_id}/folders")
+def get_group_folders(
+    group_id: int,
+    parent_id: Optional[int] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get folders belonging to a specific group"""
+    group = crud.get_user_group_by_id(db, group_id)
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Group not found"
+        )
+
+    # Check membership or org admin
+    is_member = crud.is_user_in_group(db, current_user.id, group_id)
+    is_org_admin = (
+        current_user.organization_id == group.organization_id and
+        current_user.org_role == 'admin'
+    )
+    if not is_member and not is_org_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not a member of this group"
+        )
+
+    # Query folders that belong to this group
+    folders = db.query(Folder).filter(
+        Folder.group_id == group_id,
+        Folder.scope == 'organization',
+        Folder.parent_id == parent_id
+    ).order_by(Folder.name).all()
+
+    return [_folder_response(f, db) for f in folders]
 
 
 # ===================================
@@ -3258,10 +3884,20 @@ async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Request: {request.method} {request.url}")
     logger.error(f"Exception type: {type(exc).__name__}")
     logger.error(traceback.format_exc())
-    
+
+    # Determine the origin for CORS headers
+    origin = request.headers.get("origin", "")
+    headers = {}
+    if origin in config.CORS_ORIGINS:
+        headers = {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+        }
+
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": "Internal server error"}
+        content={"detail": "Internal server error"},
+        headers=headers
     )
 
 

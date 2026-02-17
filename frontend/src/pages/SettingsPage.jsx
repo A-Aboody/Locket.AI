@@ -28,7 +28,7 @@ import {
   AlertTitle,
   AlertDescription,
 } from '@chakra-ui/react';
-import { FiArrowLeft, FiEye, FiEyeOff, FiLock, FiUsers, FiChevronRight, FiAlertTriangle } from 'react-icons/fi';
+import { FiArrowLeft, FiEye, FiEyeOff, FiLock, FiUsers, FiChevronRight, FiAlertTriangle, FiFolder, FiList } from 'react-icons/fi';
 import AppHeader from '../custom_components/AppHeader';
 import PageTransition from '../custom_components/PageTransition';
 import { authAPI } from '../utils/api';
@@ -50,8 +50,28 @@ const SettingsPage = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Preferences - per-user key
+  const prefsKey = user ? `folderDisplayMode_${user.id}` : 'folderDisplayMode';
+  const [folderDisplay, setFolderDisplay] = useState(
+    () => localStorage.getItem(prefsKey) || 'separate'
+  );
+
   const navigate = useNavigate();
   const toast = useToast();
+
+  const handleFolderDisplayChange = (mode) => {
+    setFolderDisplay(mode);
+    localStorage.setItem(prefsKey, mode);
+    // Dispatch event so other components can react
+    window.dispatchEvent(new CustomEvent('preferencesChanged', { detail: { folderDisplayMode: mode } }));
+    toast({
+      title: 'Preference updated',
+      description: mode === 'separate' ? 'Folders shown as separate list' : 'Folders shown in document list',
+      status: 'success',
+      duration: 2000,
+      isClosable: true,
+    });
+  };
 
   const handleChangePassword = async (e) => {
     e.preventDefault();
@@ -244,6 +264,70 @@ const SettingsPage = () => {
                     </Button>
                   </Box>
                 )}
+              </Box>
+
+              {/* Preferences Section */}
+              <Box py={6}>
+                <Text color="white" fontSize="sm" fontWeight="600" mb={4}>
+                  Preferences
+                </Text>
+
+                <VStack spacing={4} align="stretch">
+                  <Box>
+                    <Text color="gray.300" fontSize="sm" fontWeight="500" mb={3}>
+                      Folder Display
+                    </Text>
+                    <Text color="gray.500" fontSize="xs" mb={3}>
+                      Choose how folders appear on document pages
+                    </Text>
+                    <HStack spacing={3}>
+                      <Box
+                        flex={1}
+                        p={4}
+                        bg={folderDisplay === 'separate' ? 'primary.700' : 'primary.800'}
+                        border="1px"
+                        borderColor={folderDisplay === 'separate' ? 'accent.500' : 'primary.600'}
+                        borderRadius="md"
+                        cursor="pointer"
+                        onClick={() => handleFolderDisplayChange('separate')}
+                        _hover={{ borderColor: folderDisplay === 'separate' ? 'accent.500' : 'primary.500' }}
+                        transition="all 0.15s"
+                      >
+                        <HStack spacing={3} mb={2}>
+                          <Icon as={FiFolder} color={folderDisplay === 'separate' ? 'accent.400' : 'gray.500'} boxSize={4} />
+                          <Text color={folderDisplay === 'separate' ? 'white' : 'gray.400'} fontSize="sm" fontWeight="500">
+                            Separate List
+                          </Text>
+                        </HStack>
+                        <Text color="gray.500" fontSize="xs">
+                          Folders displayed as a horizontal row above documents
+                        </Text>
+                      </Box>
+                      <Box
+                        flex={1}
+                        p={4}
+                        bg={folderDisplay === 'inline' ? 'primary.700' : 'primary.800'}
+                        border="1px"
+                        borderColor={folderDisplay === 'inline' ? 'accent.500' : 'primary.600'}
+                        borderRadius="md"
+                        cursor="pointer"
+                        onClick={() => handleFolderDisplayChange('inline')}
+                        _hover={{ borderColor: folderDisplay === 'inline' ? 'accent.500' : 'primary.500' }}
+                        transition="all 0.15s"
+                      >
+                        <HStack spacing={3} mb={2}>
+                          <Icon as={FiList} color={folderDisplay === 'inline' ? 'accent.400' : 'gray.500'} boxSize={4} />
+                          <Text color={folderDisplay === 'inline' ? 'white' : 'gray.400'} fontSize="sm" fontWeight="500">
+                            In Document List
+                          </Text>
+                        </HStack>
+                        <Text color="gray.500" fontSize="xs">
+                          Folders displayed inline at the top of the document list
+                        </Text>
+                      </Box>
+                    </HStack>
+                  </Box>
+                </VStack>
               </Box>
 
               {/* Change Password Section */}

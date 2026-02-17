@@ -1,7 +1,7 @@
 //frontend/src/utils/api.js
 import axios from 'axios';
 
-const API_BASE_URL = 'http://127.0.0.1:8001/api';
+const API_BASE_URL = 'http://localhost:8001/api';
 
 // Create axios instance with default config
 const api = axios.create({
@@ -183,8 +183,15 @@ export const documentsAPI = {
   reindex: () => api.post('/documents/reindex'),
   
   // Update document visibility
-  updateVisibility: (documentId, visibilityData) => 
+  updateVisibility: (documentId, visibilityData) =>
     api.put(`/documents/${documentId}/visibility`, visibilityData),
+
+  // Rename document
+  rename: (documentId, filename) =>
+    api.put(`/documents/${documentId}/rename`, { filename }),
+
+  // Make a copy of a document
+  copy: (documentId) => api.post(`/documents/${documentId}/copy`),
   
   // Get document statistics
   getStats: (userId) => api.get(`/users/${userId}/stats`),
@@ -253,6 +260,10 @@ export const userGroupsAPI = {
   getGroupDocuments: (groupId, params = {}) => 
     api.get(`/user-groups/${groupId}/documents`, { params }),
   
+  // Group folders
+  getGroupFolders: (groupId, parentId = null) =>
+    api.get(`/user-groups/${groupId}/folders`, { params: { parent_id: parentId } }),
+
   // Statistics
   getGroupStats: (groupId) => api.get(`/user-groups/${groupId}/stats`),
   
@@ -393,6 +404,25 @@ export const organizationsAPI = {
     };
     return roleNames[role] || role;
   },
+};
+
+// Trash API
+export const trashAPI = {
+  list: (params = {}) => api.get('/trash', { params }),
+  restore: (documentId) => api.post(`/trash/${documentId}/restore`),
+  deletePermanently: (documentId) => api.delete(`/trash/${documentId}`),
+  empty: () => api.delete('/trash/empty'),
+};
+
+// Folders API
+export const foldersAPI = {
+  create: (data) => api.post('/folders', data),
+  list: (params = {}) => api.get('/folders', { params }),
+  get: (folderId) => api.get(`/folders/${folderId}`),
+  update: (folderId, data) => api.put(`/folders/${folderId}`, data),
+  delete: (folderId) => api.delete(`/folders/${folderId}`),
+  moveDocument: (documentId, folderId) =>
+    api.put(`/documents/${documentId}/move`, { folder_id: folderId }),
 };
 
 // Users API for search and management

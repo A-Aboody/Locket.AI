@@ -18,7 +18,7 @@ const NavTabs = () => {
     if (path === '/documents') return 1;
     if (path === '/my-uploads') return 2;
     if (path.startsWith('/chat')) return 3;
-    return 0;
+    return -1; // No tab selected (e.g., trash page)
   };
 
   const handleTabChange = (index) => {

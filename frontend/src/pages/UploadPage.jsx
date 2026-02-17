@@ -27,6 +27,7 @@ const UploadPage = () => {
 
   // Store the previous page when component mounts
   const previousPage = location.state?.from || '/dashboard';
+  const folderId = location.state?.folderId || null;
 
   useEffect(() => {
     // Get user data from localStorage (ProtectedRoute already verified auth)
@@ -125,7 +126,7 @@ const UploadPage = () => {
                   </Text>
                 </HStack>
 
-                <DocumentUpload onUploadSuccess={handleUploadSuccess} />
+                <DocumentUpload onUploadSuccess={handleUploadSuccess} folderId={folderId} />
               </Container>
             </PageTransition>
           </Box>

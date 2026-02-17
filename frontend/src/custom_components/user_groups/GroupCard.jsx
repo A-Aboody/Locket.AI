@@ -25,10 +25,13 @@ import {
   FiUser,
   FiFile,
   FiUserPlus,
+  FiFolder,
 } from 'react-icons/fi';
 import MembersList from './MembersList';
 import AddMemberForm from './AddMemberForm';
 import GroupDocuments from './GroupDocuments';
+import GroupFolders from './GroupFolders';
+import CreateFolderModal from '../CreateFolderModal';
 
 const GroupCard = ({
   group,
@@ -49,6 +52,7 @@ const GroupCard = ({
   const [editName, setEditName] = useState(group.name);
   const [editDescription, setEditDescription] = useState(group.description || '');
   const [isAddingMember, setIsAddingMember] = useState(false);
+  const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
 
   const handleSaveEdit = () => {
     onEdit(group.id, editName, editDescription);
@@ -316,8 +320,51 @@ const GroupCard = ({
               onViewDocument={onViewDocument}
             />
           </Box>
+
+          {/* Group Folders */}
+          <Box pt={4} borderTop="1px" borderColor="primary.600">
+            <HStack justify="space-between" mb={3}>
+              <Text color="gray.400" fontSize="xs" fontWeight="600" textTransform="uppercase" letterSpacing="0.05em">
+                Folders
+              </Text>
+              {(isOwner || isOrgAdmin) && (
+                <Button
+                  leftIcon={<FiFolder />}
+                  size="xs"
+                  variant="ghost"
+                  color="gray.400"
+                  fontWeight="500"
+                  _hover={{
+                    bg: 'primary.700',
+                    color: 'white',
+                  }}
+                  transition="all 0.15s"
+                  onClick={() => setIsCreateFolderOpen(true)}
+                >
+                  New Folder
+                </Button>
+              )}
+            </HStack>
+            <GroupFolders
+              groupId={group.id}
+              groupName={group.name}
+              isOwner={isOwner}
+              currentUserId={currentUserId}
+              onViewDocument={onViewDocument}
+            />
+          </Box>
         </Box>
       </Collapse>
+
+      {/* Create Group Folder Modal */}
+      <CreateFolderModal
+        isOpen={isCreateFolderOpen}
+        onClose={() => setIsCreateFolderOpen(false)}
+        onSuccess={() => setIsCreateFolderOpen(false)}
+        inheritedScope="organization"
+        inheritedGroupId={group.id}
+        currentMode="organization"
+      />
     </Box>
   );
 };

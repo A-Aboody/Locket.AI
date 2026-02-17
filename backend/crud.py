@@ -10,7 +10,7 @@ from sqlalchemy import or_, and_
 from database_models import (
     User, UserRole, UserStatus, Document, UserGroup, UserGroupMember,
     VerificationCode, PasswordResetToken, Organization, OrganizationMember,
-    OrganizationInvite, OrgRole, DocumentActivity
+    OrganizationInvite, OrgRole, DocumentActivity, Folder
 )
 from schemas import UserRegister
 from typing import Optional, List, Dict
@@ -499,7 +499,8 @@ def get_user_documents(db: Session, user_id: int, skip: int = 0, limit: int = 10
         joinedload(Document.uploaded_by),
         joinedload(Document.user_group)
     ).filter(
-        Document.uploaded_by_id == user_id
+        Document.uploaded_by_id == user_id,
+        Document.is_trashed == False
     ).order_by(
         Document.uploaded_at.desc()
     ).offset(skip).limit(limit).all()
@@ -573,7 +574,8 @@ def get_visible_documents(db: Session, user_id: int, skip: int = 0, limit: int =
         joinedload(Document.uploaded_by),
         joinedload(Document.user_group)
     ).filter(
-        or_(*conditions)
+        or_(*conditions),
+        Document.is_trashed == False
     ).order_by(
         Document.uploaded_at.desc()
     ).offset(skip).limit(limit).all()
@@ -598,7 +600,8 @@ def get_personal_documents(db: Session, user_id: int, skip: int = 0, limit: int 
     ).filter(
         and_(
             Document.uploaded_by_id == user_id,
-            Document.visibility == 'private'
+            Document.visibility == 'private',
+            Document.is_trashed == False
         )
     ).order_by(
         Document.uploaded_at.desc()
@@ -666,7 +669,8 @@ def get_organization_documents(db: Session, user_id: int, skip: int = 0, limit: 
         joinedload(Document.uploaded_by),
         joinedload(Document.user_group)
     ).filter(
-        or_(*conditions)
+        or_(*conditions),
+        Document.is_trashed == False
     ).order_by(
         Document.uploaded_at.desc()
     ).offset(skip).limit(limit).all()
@@ -687,6 +691,8 @@ def get_all_documents(db: Session, skip: int = 0, limit: int = 100) -> List[Docu
     return db.query(Document).options(
         joinedload(Document.uploaded_by),
         joinedload(Document.user_group)
+    ).filter(
+        Document.is_trashed == False
     ).order_by(
         Document.uploaded_at.desc()
     ).offset(skip).limit(limit).all()
@@ -999,7 +1005,7 @@ def delete_user_group(db: Session, group_id: int) -> bool:
     return False
 
 
-def search_users(db: Session, query: str, exclude_user_id: Optional[int] = None, include_inactive: bool = False) -> List[User]:
+def search_users(db: Session, query: str, exclude_user_id: Optional[int] = None, include_inactive: bool = False, organization_id: Optional[int] = None) -> List[User]:
     """
     Search users by username or email
 
@@ -1008,6 +1014,7 @@ def search_users(db: Session, query: str, exclude_user_id: Optional[int] = None,
         query: Search query string
         exclude_user_id: Optional user ID to exclude from results
         include_inactive: If True, include inactive users (for admin searches)
+        organization_id: If provided, only return users in this organization
 
     Returns:
         List of matching users
@@ -1027,6 +1034,13 @@ def search_users(db: Session, query: str, exclude_user_id: Optional[int] = None,
     # Only filter by active status if we're not including inactive users
     if not include_inactive:
         query_builder = query_builder.filter(User.is_active == True)
+
+    # Filter by organization membership
+    if organization_id is not None:
+        query_builder = query_builder.filter(User.organization_id == organization_id)
+    else:
+        # If user has no org, only show users also without an org
+        query_builder = query_builder.filter(User.organization_id == None)
 
     return query_builder.limit(20).all()
 
@@ -1058,7 +1072,8 @@ def get_group_documents(db: Session, group_id: int, skip: int = 0, limit: int = 
     return db.query(Document).options(
         joinedload(Document.uploaded_by)
     ).filter(
-        Document.user_group_id == group_id
+        Document.user_group_id == group_id,
+        Document.is_trashed == False
     ).order_by(
         Document.uploaded_at.desc()
     ).offset(skip).limit(limit).all()
@@ -1868,10 +1883,12 @@ def get_recent_activity(
         latest_activity.c.document_id
     ).subquery()
     
-    # Join with documents to get full info
+    # Join with documents to get full info, excluding trashed documents
     query = db.query(Document, latest_per_doc.c.last_accessed).join(
         latest_per_doc,
         Document.id == latest_per_doc.c.document_id
+    ).filter(
+        Document.is_trashed == False
     )
     
     # Apply mode filtering
@@ -1981,7 +1998,7 @@ def get_organization_invites_paginated(
     offset = (page - 1) * page_size
     
     items = query.order_by(OrganizationInvite.created_at.desc()).offset(offset).limit(page_size).all()
-    
+
     return {
         "items": items,
         "total_count": total_count,
@@ -1991,3 +2008,285 @@ def get_organization_invites_paginated(
         "has_next": page < total_pages,
         "has_previous": page > 1
     }
+
+
+# ===================================
+# Trash Operations
+# ===================================
+
+def soft_delete_document(db: Session, document_id: int, user_id: int) -> Optional[Document]:
+    """Soft delete a document (move to trash)"""
+    document = get_document_by_id(db, document_id)
+    if document:
+        document.is_trashed = True
+        document.trashed_at = datetime.now(timezone.utc)
+        document.trashed_by_id = user_id
+        db.commit()
+        db.refresh(document)
+        return document
+    return None
+
+
+def get_trashed_documents(db: Session, user_id: int, skip: int = 0, limit: int = 100) -> List[Document]:
+    """Get trashed documents owned by user"""
+    return db.query(Document).options(
+        joinedload(Document.uploaded_by),
+        joinedload(Document.folder)
+    ).filter(
+        Document.uploaded_by_id == user_id,
+        Document.is_trashed == True
+    ).order_by(
+        Document.trashed_at.desc()
+    ).offset(skip).limit(limit).all()
+
+
+def restore_document(db: Session, document_id: int) -> Optional[Document]:
+    """Restore a document from trash"""
+    document = get_document_by_id(db, document_id)
+    if document:
+        document.is_trashed = False
+        document.trashed_at = None
+        document.trashed_by_id = None
+        db.commit()
+        db.refresh(document)
+        return document
+    return None
+
+
+def permanently_delete_document(db: Session, document_id: int) -> bool:
+    """Hard delete a document from database"""
+    document = get_document_by_id(db, document_id)
+    if document:
+        db.delete(document)
+        db.commit()
+        return True
+    return False
+
+
+def empty_trash(db: Session, user_id: int) -> List[Document]:
+    """Get all trashed documents for a user (for deletion)"""
+    return db.query(Document).filter(
+        Document.uploaded_by_id == user_id,
+        Document.is_trashed == True
+    ).all()
+
+
+def auto_cleanup_trash(db: Session, days: int = 30) -> int:
+    """Delete documents trashed more than N days ago. Returns count deleted."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    docs = db.query(Document).filter(
+        Document.is_trashed == True,
+        Document.trashed_at < cutoff
+    ).all()
+    count = len(docs)
+    for doc in docs:
+        db.delete(doc)
+    db.commit()
+    return count
+
+
+# ===================================
+# Folder Operations
+# ===================================
+
+def create_folder(db: Session, name: str, owner_id: int, parent_id: Optional[int] = None,
+                   organization_id: Optional[int] = None, scope: str = 'private',
+                   group_id: Optional[int] = None) -> Folder:
+    """Create a new folder"""
+    folder = Folder(
+        name=name,
+        owner_id=owner_id,
+        parent_id=parent_id,
+        organization_id=organization_id,
+        scope=scope,
+        group_id=group_id if scope == 'organization' else None,
+    )
+    db.add(folder)
+    db.commit()
+    db.refresh(folder)
+    return folder
+
+
+def get_folders(db: Session, owner_id: int, parent_id: Optional[int] = None) -> List[Folder]:
+    """Get folders for a user at a given level (None = root) - legacy, owner-only"""
+    return db.query(Folder).filter(
+        Folder.owner_id == owner_id,
+        Folder.parent_id == parent_id
+    ).order_by(Folder.name).all()
+
+
+def get_folders_for_user(db: Session, user_id: int, parent_id: Optional[int] = None, mode: str = 'personal') -> List[Folder]:
+    """Get folders visible to a user based on mode and permissions"""
+    user = get_user_by_id(db, user_id)
+    if not user:
+        return []
+
+    if (mode == 'personal') or not user.organization_id:
+        # Personal mode: only private folders owned by user
+        return db.query(Folder).filter(
+            Folder.owner_id == user_id,
+            Folder.scope == 'private',
+            Folder.parent_id == parent_id
+        ).order_by(Folder.name).all()
+
+    # Organization or 'all' mode: private (owned) + org (same org, no group or user in group)
+    user_group_ids = [
+        m.group_id for m in db.query(UserGroupMember.group_id).filter(
+            UserGroupMember.user_id == user_id
+        ).all()
+    ]
+
+    conditions = [
+        # Private folders owned by user
+        and_(Folder.owner_id == user_id, Folder.scope == 'private'),
+        # Org-wide folders (no group restriction) in same org
+        and_(
+            Folder.scope == 'organization',
+            Folder.organization_id == user.organization_id,
+            Folder.group_id == None
+        ),
+    ]
+
+    # Group-scoped org folders where user is a member
+    if user_group_ids:
+        conditions.append(
+            and_(
+                Folder.scope == 'organization',
+                Folder.organization_id == user.organization_id,
+                Folder.group_id.in_(user_group_ids)
+            )
+        )
+
+    return db.query(Folder).filter(
+        or_(*conditions),
+        Folder.parent_id == parent_id
+    ).order_by(Folder.name).all()
+
+
+def can_user_access_folder(db: Session, user_id: int, folder_id: int) -> bool:
+    """Check if a user can access a folder"""
+    folder = get_folder_by_id(db, folder_id)
+    if not folder:
+        return False
+
+    user = get_user_by_id(db, user_id)
+    if not user:
+        return False
+
+    # Global admin can access all
+    if user.role == UserRole.ADMIN:
+        return True
+
+    # Private folder - owner only
+    if folder.scope == 'private':
+        return folder.owner_id == user_id
+
+    # Organization folder
+    if folder.scope == 'organization':
+        if user.organization_id != folder.organization_id:
+            return False
+        # No group restriction - all org members
+        if not folder.group_id:
+            return True
+        # Group restricted - check membership
+        return is_user_in_group(db, user_id, folder.group_id)
+
+    return False
+
+
+def can_user_modify_folder(db: Session, user_id: int, folder_id: int) -> bool:
+    """Check if a user can rename/delete a folder"""
+    folder = get_folder_by_id(db, folder_id)
+    if not folder:
+        return False
+
+    user = get_user_by_id(db, user_id)
+    if not user:
+        return False
+
+    # Global admin
+    if user.role == UserRole.ADMIN:
+        return True
+
+    # Owner can always modify
+    if folder.owner_id == user_id:
+        return True
+
+    # Org admins can modify org folders
+    if folder.scope == 'organization' and folder.organization_id:
+        return is_organization_admin(db, folder.organization_id, user_id)
+
+    return False
+
+
+def get_folder_by_id(db: Session, folder_id: int) -> Optional[Folder]:
+    """Get folder by ID"""
+    return db.query(Folder).filter(Folder.id == folder_id).first()
+
+
+def rename_folder(db: Session, folder_id: int, new_name: str) -> Optional[Folder]:
+    """Rename a folder"""
+    folder = get_folder_by_id(db, folder_id)
+    if folder:
+        folder.name = new_name
+        folder.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(folder)
+        return folder
+    return None
+
+
+def delete_folder(db: Session, folder_id: int) -> bool:
+    """Delete a folder. Documents inside move to the parent folder (or root)."""
+    folder = get_folder_by_id(db, folder_id)
+    if not folder:
+        return False
+
+    # Move documents to parent folder
+    db.query(Document).filter(
+        Document.folder_id == folder_id
+    ).update({Document.folder_id: folder.parent_id})
+
+    # Move child folders to parent folder
+    db.query(Folder).filter(
+        Folder.parent_id == folder_id
+    ).update({Folder.parent_id: folder.parent_id})
+
+    db.delete(folder)
+    db.commit()
+    return True
+
+
+def move_document_to_folder(db: Session, document_id: int, folder_id: Optional[int]) -> Optional[Document]:
+    """Move a document to a folder (None = root)"""
+    document = get_document_by_id(db, document_id)
+    if document:
+        document.folder_id = folder_id
+        document.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(document)
+        return document
+    return None
+
+
+def get_folder_breadcrumb(db: Session, folder_id: int) -> List[Dict]:
+    """Get breadcrumb path from root to the given folder"""
+    path = []
+    current = get_folder_by_id(db, folder_id)
+    while current:
+        path.append({"id": current.id, "name": current.name})
+        current = get_folder_by_id(db, current.parent_id) if current.parent_id else None
+    path.reverse()
+    return path
+
+
+def rename_document(db: Session, document_id: int, new_filename: str) -> Optional[Document]:
+    """Rename a document"""
+    document = get_document_by_id(db, document_id)
+    if document:
+        document.filename = new_filename
+        document.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(document)
+        return document
+    return None

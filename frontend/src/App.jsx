@@ -13,6 +13,7 @@ import SettingsPage from './pages/SettingsPage';
 import OrganizationSettings from './pages/OrganizationSettings';
 import OrganizationOnboardingPage from './pages/OrganizationOnboardingPage';
 import ChatPage from './pages/ChatPage';
+import TrashPage from './pages/TrashPage';
 import AuthPage from './pages/AuthPage';
 import NotFoundPage from './pages/NotFoundPage';
 import LocalFileViewer from './custom_components/LocalFileViewer';
@@ -127,6 +128,14 @@ function App() {
           element={
             <ProtectedRoute>
               <ChatPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/trash"
+          element={
+            <ProtectedRoute>
+              <TrashPage />
             </ProtectedRoute>
           }
         />

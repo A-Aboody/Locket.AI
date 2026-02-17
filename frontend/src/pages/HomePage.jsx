@@ -15,8 +15,16 @@ import {
   IconButton,
   Tooltip,
   ButtonGroup,
+  useDisclosure,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  Input,
 } from '@chakra-ui/react';
-import { FiArrowRight, FiGrid, FiList, FiPlus } from 'react-icons/fi';
+import { FiArrowRight, FiGrid, FiList, FiPlus, FiEdit2 } from 'react-icons/fi';
 import SearchBar from '../custom_components/SearchBar';
 import SearchResults from '../custom_components/SearchResults';
 import DocumentList from '../custom_components/DocumentList';
@@ -26,7 +34,7 @@ import FloatingMenu from '../custom_components/FloatingMenu';
 import AppHeader from '../custom_components/AppHeader';
 import NavTabs from '../custom_components/NavTabs';
 import PageTransition from '../custom_components/PageTransition';
-import { searchAPI, documentsAPI } from '../utils/api';
+import { searchAPI, documentsAPI, foldersAPI, userGroupsAPI } from '../utils/api';
 import { getCurrentMode } from '../utils/documentFilters';
 
 const HomePage = () => {
@@ -39,8 +47,18 @@ const HomePage = () => {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState(null);
+  const [folderSearchResults, setFolderSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchTime, setSearchTime] = useState(0);
+
+  // Folders and groups for context menu
+  const [folders, setFolders] = useState([]);
+  const [groups, setGroups] = useState([]);
+
+  // Rename state
+  const [renameDoc, setRenameDoc] = useState(null);
+  const [renameValue, setRenameValue] = useState('');
+  const { isOpen: isRenameOpen, onOpen: onRenameOpen, onClose: onRenameClose } = useDisclosure();
 
   const navigate = useNavigate();
   const toast = useToast();
@@ -53,6 +71,8 @@ const HomePage = () => {
       setUser(userData);
       fetchRecentActivity();
       fetchMyUploads();
+      fetchFolders();
+      fetchGroups();
     }
   }, []);
 
@@ -62,7 +82,7 @@ const HomePage = () => {
       if (user) {
         // Re-fetch documents when mode changes (backend filters by mode)
         fetchRecentActivity();
-        // My Uploads doesn't change with mode, but we keep it consistent
+        fetchMyUploads();
       }
     };
 
@@ -83,11 +103,34 @@ const HomePage = () => {
 
   const fetchMyUploads = async () => {
     try {
+      const mode = getCurrentMode();
       const response = await documentsAPI.listMyDocuments({ limit: 100 });
-      // My Uploads always shows all user's documents regardless of mode
-      setMyUploadsDocs(response.data.slice(0, 6));
+      let docs = response.data;
+      // In personal mode, only show private documents
+      if (mode === 'personal') {
+        docs = docs.filter(doc => doc.visibility === 'private');
+      }
+      setMyUploadsDocs(docs.slice(0, 6));
     } catch (error) {
       console.error('Failed to fetch user uploads:', error);
+    }
+  };
+
+  const fetchFolders = async () => {
+    try {
+      const response = await foldersAPI.list({});
+      setFolders(response.data);
+    } catch {
+      setFolders([]);
+    }
+  };
+
+  const fetchGroups = async () => {
+    try {
+      const response = await userGroupsAPI.list();
+      setGroups(response.data.groups || response.data || []);
+    } catch {
+      setGroups([]);
     }
   };
 
@@ -120,6 +163,7 @@ const HomePage = () => {
     if (!query || query.trim() === '') {
       setSearchQuery('');
       setSearchResults(null);
+      setFolderSearchResults([]);
       return;
     }
 
@@ -127,9 +171,13 @@ const HomePage = () => {
     setIsSearching(true);
 
     try {
-      const response = await searchAPI.search(query);
-      setSearchResults(response.data.results);
-      setSearchTime(response.data.search_time_ms);
+      const [docResponse, folderResponse] = await Promise.all([
+        searchAPI.search(query),
+        foldersAPI.list({ search: query }),
+      ]);
+      setSearchResults(docResponse.data.results);
+      setFolderSearchResults(folderResponse.data || []);
+      setSearchTime(docResponse.data.search_time_ms);
     } catch (error) {
       toast({
         title: 'Search failed',
@@ -139,6 +187,7 @@ const HomePage = () => {
         isClosable: true,
       });
       setSearchResults([]);
+      setFolderSearchResults([]);
     } finally {
       setIsSearching(false);
     }
@@ -183,6 +232,45 @@ const HomePage = () => {
     setPreviewDocumentId(null);
   };
 
+  const handleRefresh = () => {
+    fetchRecentActivity();
+    fetchMyUploads();
+  };
+
+  const handleRename = (doc) => {
+    setRenameDoc(doc);
+    const lastDot = doc.filename.lastIndexOf('.');
+    setRenameValue(lastDot > 0 ? doc.filename.substring(0, lastDot) : doc.filename);
+    onRenameOpen();
+  };
+
+  const handleRenameConfirm = async () => {
+    if (!renameValue.trim() || !renameDoc) return;
+    const lastDot = renameDoc.filename.lastIndexOf('.');
+    const ext = lastDot > 0 ? renameDoc.filename.substring(lastDot) : '';
+    const newFilename = renameValue.trim() + ext;
+    try {
+      await documentsAPI.rename(renameDoc.id, newFilename);
+      toast({ title: 'Document renamed', status: 'success', duration: 3000, isClosable: true });
+      handleRefresh();
+    } catch (error) {
+      toast({ title: 'Rename failed', description: error.response?.data?.detail || 'An error occurred', status: 'error', duration: 5000, isClosable: true });
+    } finally {
+      onRenameClose();
+      setRenameDoc(null);
+    }
+  };
+
+  const handleMoveToFolder = async (docId, folderId) => {
+    try {
+      await foldersAPI.moveDocument(docId, folderId);
+      toast({ title: 'Document moved', status: 'success', duration: 3000, isClosable: true });
+      handleRefresh();
+    } catch (error) {
+      toast({ title: 'Move failed', description: error.response?.data?.detail || 'An error occurred', status: 'error', duration: 5000, isClosable: true });
+    }
+  };
+
   if (!user) {
     return null;
   }
@@ -210,13 +298,14 @@ const HomePage = () => {
           </Box>
 
           <Box flex={1} overflowY="auto" p={6}>
+            {viewingDocumentId && (
+              <DocumentViewer
+                documentId={viewingDocumentId}
+                onClose={handleCloseViewer}
+              />
+            )}
             <PageTransition>
-              {viewingDocumentId ? (
-                <DocumentViewer
-                  documentId={viewingDocumentId}
-                  onClose={handleCloseViewer}
-                />
-              ) : searchQuery ? (
+              {searchQuery ? (
                 <SearchResults
                   results={searchResults}
                   query={searchQuery}
@@ -224,6 +313,13 @@ const HomePage = () => {
                   isLoading={isSearching}
                   onViewDocument={handleViewDocument}
                   onSearchUpdate={handleSearchUpdate}
+                  folderResults={folderSearchResults}
+                  onFolderNavigate={(folderId) => {
+                    setSearchQuery('');
+                    setSearchResults(null);
+                    setFolderSearchResults([]);
+                    navigate('/documents', { state: { selectedFolderId: folderId } });
+                  }}
                 />
               ) : (
                 <Box maxW="100%">
@@ -284,13 +380,30 @@ const HomePage = () => {
                     {/* Recent Activity */}
                     <Box>
                       <HStack justify="space-between" mb={4}>
-                        <Text fontSize="xl" fontWeight="bold" color="white">
+                        <Button
+                          variant="ghost"
+                          fontSize="xl"
+                          fontWeight="bold"
+                          color="white"
+                          px={2}
+                          h="auto"
+                          py={1}
+                          _hover={{ color: 'accent.400', bg: 'transparent' }}
+                          onClick={() => navigate('/documents')}
+                          rightIcon={<FiArrowRight size={16} />}
+                        >
                           Recent Activity
-                        </Text>
+                        </Button>
                       </HStack>
                       <DocumentList
                         documents={recentDocs}
                         onViewDocument={handleViewDocument}
+                        onViewFullScreen={handleViewDocumentFullScreen}
+                        onDelete={handleRefresh}
+                        onRename={handleRename}
+                        onMoveToFolder={handleMoveToFolder}
+                        groups={groups}
+                        folders={folders}
                         emptyMessage="No recent activity"
                         viewMode={viewMode}
                       />
@@ -299,26 +412,30 @@ const HomePage = () => {
                     {/* My Uploads */}
                     <Box>
                       <HStack justify="space-between" mb={4}>
-                        <Text fontSize="xl" fontWeight="bold" color="white">
+                        <Button
+                          variant="ghost"
+                          fontSize="xl"
+                          fontWeight="bold"
+                          color="white"
+                          px={2}
+                          h="auto"
+                          py={1}
+                          _hover={{ color: 'accent.400', bg: 'transparent' }}
+                          onClick={() => navigate('/my-uploads')}
+                          rightIcon={<FiArrowRight size={16} />}
+                        >
                           My Uploads
-                        </Text>
-                        {myUploadsDocs.length >= 6 && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            colorScheme="accent"
-                            rightIcon={<FiArrowRight />}
-                            onClick={() => navigate('/my-uploads')}
-                            color="accent.400"
-                            _hover={{ color: 'accent.300', bg: 'primary.700' }}
-                          >
-                            View More
-                          </Button>
-                        )}
+                        </Button>
                       </HStack>
                       <DocumentList
                         documents={myUploadsDocs}
                         onViewDocument={handleViewDocument}
+                        onViewFullScreen={handleViewDocumentFullScreen}
+                        onDelete={handleRefresh}
+                        onRename={handleRename}
+                        onMoveToFolder={handleMoveToFolder}
+                        groups={groups}
+                        folders={folders}
                         emptyMessage="You haven't uploaded any documents yet"
                         viewMode={viewMode}
                       />
@@ -357,6 +474,62 @@ const HomePage = () => {
         onLogout={handleLogout}
         onViewDocument={handleViewDocumentFullScreen}
       />
+
+      {/* Rename Modal */}
+      <Modal isOpen={isRenameOpen} onClose={onRenameClose} isCentered>
+        <ModalOverlay bg="blackAlpha.700" backdropFilter="blur(4px)" />
+        <ModalContent bg="primary.800" border="1px" borderColor="primary.600" mx={4}>
+          <ModalHeader color="white">
+            <HStack spacing={3}>
+              <Box p={2} bg="accent.500" rounded="lg">
+                <FiEdit2 size={20} color="white" />
+              </Box>
+              <Text>Rename Document</Text>
+            </HStack>
+          </ModalHeader>
+          <ModalBody>
+            <HStack spacing={0}>
+              <Input
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleRenameConfirm()}
+                bg="primary.700"
+                border="1px"
+                borderColor="primary.600"
+                color="white"
+                _focus={{ borderColor: 'accent.500' }}
+                autoFocus
+                borderRightRadius={renameDoc ? 0 : 'md'}
+              />
+              {renameDoc && renameDoc.filename.lastIndexOf('.') > 0 && (
+                <Box
+                  px={3}
+                  py={2}
+                  bg="primary.600"
+                  border="1px"
+                  borderColor="primary.600"
+                  borderLeft="none"
+                  borderRightRadius="md"
+                  color="gray.400"
+                  fontSize="sm"
+                  whiteSpace="nowrap"
+                  userSelect="none"
+                >
+                  {renameDoc.filename.substring(renameDoc.filename.lastIndexOf('.'))}
+                </Box>
+              )}
+            </HStack>
+          </ModalBody>
+          <ModalFooter>
+            <Button onClick={onRenameClose} variant="ghost" color="gray.400" _hover={{ bg: 'primary.700' }} mr={3}>
+              Cancel
+            </Button>
+            <Button colorScheme="accent" bg="accent.500" onClick={handleRenameConfirm} isDisabled={!renameValue.trim()}>
+              Rename
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </Box>
   );
 };

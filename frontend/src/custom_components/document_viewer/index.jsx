@@ -399,6 +399,13 @@ const DocumentViewerInner = ({ documentId, onClose }) => {
           display="flex"
           alignItems="center"
           justifyContent="center"
+          animation="fadeIn 0.15s ease-out"
+          sx={{
+            '@keyframes fadeIn': {
+              from: { opacity: 0 },
+              to: { opacity: 1 },
+            },
+          }}
         >
           <VStack spacing={4}>
             <Spinner size="xl" color="accent.500" thickness="4px" />
@@ -427,6 +434,13 @@ const DocumentViewerInner = ({ documentId, onClose }) => {
         zIndex={9999}
         display="flex"
         flexDirection="column"
+        animation="fadeIn 0.2s ease-out"
+        sx={{
+          '@keyframes fadeIn': {
+            from: { opacity: 0 },
+            to: { opacity: 1 },
+          },
+        }}
       >
         <DocumentToolbar
           documentData={documentData}

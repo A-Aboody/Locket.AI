@@ -174,6 +174,10 @@ class DocumentResponse(BaseModel):
     user_group_name: Optional[str] = None
     organization_id: Optional[int] = None
     organization_name: Optional[str] = None
+    is_trashed: bool = False
+    trashed_at: Optional[datetime] = None
+    folder_id: Optional[int] = None
+    folder_name: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -806,3 +810,96 @@ class InviteResponse(BaseModel):
 class JoinOrgRequest(BaseModel):
     """Schema for joining organization via invite code"""
     invite_code: str = Field(..., min_length=1, description="Organization invite code")
+
+
+# ===================================
+# Trash Schemas
+# ===================================
+
+class TrashDocumentResponse(BaseModel):
+    """Schema for trashed document response"""
+    id: int
+    filename: str
+    file_type: str
+    file_size: int
+    page_count: int
+    uploaded_at: datetime
+    trashed_at: datetime
+    uploaded_by_id: int
+    uploaded_by_username: Optional[str] = None
+    visibility: str
+    folder_id: Optional[int] = None
+    folder_name: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ===================================
+# Folder Schemas
+# ===================================
+
+class FolderCreate(BaseModel):
+    """Schema for creating a folder"""
+    name: str = Field(..., min_length=1, max_length=255)
+    parent_id: Optional[int] = None
+    scope: Optional[str] = 'private'
+    group_id: Optional[int] = None
+
+    @validator('name')
+    def name_not_empty(cls, v):
+        if not v.strip():
+            raise ValueError('Folder name cannot be empty')
+        return v.strip()
+
+    @validator('scope')
+    def scope_valid(cls, v):
+        if v not in ('private', 'organization'):
+            raise ValueError("Scope must be 'private' or 'organization'")
+        return v
+
+    @validator('group_id')
+    def group_requires_org_scope(cls, v, values):
+        if v is not None and values.get('scope') != 'organization':
+            raise ValueError('group_id can only be set with organization scope')
+        return v
+
+
+class FolderUpdate(BaseModel):
+    """Schema for renaming a folder"""
+    name: str = Field(..., min_length=1, max_length=255)
+
+
+class FolderResponse(BaseModel):
+    """Schema for folder response"""
+    id: int
+    name: str
+    parent_id: Optional[int] = None
+    owner_id: int
+    organization_id: Optional[int] = None
+    scope: str = 'private'
+    group_id: Optional[int] = None
+    group_name: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    document_count: int = 0
+    subfolder_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class FolderWithContentsResponse(FolderResponse):
+    """Schema for folder response with contents"""
+    children: List[FolderResponse] = []
+    breadcrumb: List[Dict] = []
+
+
+class DocumentMoveRequest(BaseModel):
+    """Schema for moving a document to a folder"""
+    folder_id: Optional[int] = None  # None = move to root
+
+
+class DocumentRenameRequest(BaseModel):
+    """Schema for renaming a document"""
+    filename: str = Field(..., min_length=1, max_length=255)

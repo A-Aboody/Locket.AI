@@ -15,8 +15,11 @@ import {
   AlertIcon,
   AlertDescription,
   Divider,
+  Button,
+  Icon,
+  IconButton,
 } from '@chakra-ui/react';
-import { FiUpload, FiUsers } from 'react-icons/fi';
+import { FiUpload, FiUsers, FiFolder, FiX, FiChevronRight, FiLock, FiGlobe } from 'react-icons/fi';
 import { documentsAPI, userGroupsAPI, usersAPI, apiUtils } from '../utils/api';
 import { isPersonalMode as checkIsPersonalMode } from '../utils/modeUtils';
 
@@ -26,8 +29,9 @@ import VisibilitySelector from './document_upload/VisibilitySelector';
 import GroupSelection from './document_upload/GroupSelection';
 import UploadButton from './document_upload/UploadButton';
 import GroupSelectionModal from './document_upload/GroupSelectionModal';
+import FoldersModal from './FoldersModal';
 
-const DocumentUpload = ({ onUploadSuccess }) => {
+const DocumentUpload = ({ onUploadSuccess, folderId = null }) => {
   // Get current user for organization visibility
   const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
   const [isPersonalMode, setIsPersonalMode] = useState(checkIsPersonalMode());
@@ -44,6 +48,10 @@ const DocumentUpload = ({ onUploadSuccess }) => {
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [uploadError, setUploadError] = useState(null);
 
+  // Folder selection state
+  const [selectedFolder, setSelectedFolder] = useState(null);
+  const [showFolderModal, setShowFolderModal] = useState(false);
+
   const fileInputRef = useRef(null);
   const toast = useToast();
   const maxSizeMB = 100;
@@ -56,6 +64,7 @@ const DocumentUpload = ({ onUploadSuccess }) => {
       // Reset visibility to appropriate default for new mode
       setVisibility(newMode ? 'private' : null);
       setSelectedGroup(null);
+      setSelectedFolder(null);
     };
 
     window.addEventListener('modeChanged', handleModeChange);
@@ -74,7 +83,7 @@ const DocumentUpload = ({ onUploadSuccess }) => {
       const response = await userGroupsAPI.list();
       const groups = response.data || [];
       setUserGroups(groups);
-      
+
       if (groups.length === 0) {
         toast({
           title: 'No groups available',
@@ -102,7 +111,7 @@ const DocumentUpload = ({ onUploadSuccess }) => {
   const validateFile = (file) => {
     const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
     const allowedTypes = ['.pdf', '.txt', '.doc', '.docx'];
-    
+
     if (!allowedTypes.includes(fileExtension)) {
       const errorMsg = `File type not allowed. Supported types: ${allowedTypes.join(', ')}`;
       setUploadError(errorMsg);
@@ -161,7 +170,7 @@ const DocumentUpload = ({ onUploadSuccess }) => {
   const handleDrop = (e) => {
     e.preventDefault();
     setIsDragging(false);
-    
+
     const files = e.dataTransfer.files;
     if (files.length > 0) {
       handleFileSelect(files[0]);
@@ -212,9 +221,15 @@ const DocumentUpload = ({ onUploadSuccess }) => {
       const formData = new FormData();
       formData.append('file', selectedFile);
       formData.append('visibility', visibility);
-      
+
       if (visibility === 'group' && selectedGroup) {
         formData.append('user_group_id', selectedGroup.id.toString());
+      }
+
+      // Use selected folder or fallback to prop folderId
+      const effectiveFolderId = selectedFolder ? selectedFolder.id : folderId;
+      if (effectiveFolderId) {
+        formData.append('folder_id', effectiveFolderId.toString());
       }
 
       const response = await documentsAPI.upload(
@@ -236,13 +251,14 @@ const DocumentUpload = ({ onUploadSuccess }) => {
       // Reset to 'private' in personal mode, null in organization mode
       setVisibility(isPersonalMode ? 'private' : null);
       setSelectedGroup(null);
+      setSelectedFolder(null);
       setUploadError(null);
 
       // Clear file input like original version
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
-      
+
       if (onUploadSuccess) {
         onUploadSuccess(response.data);
       }
@@ -267,6 +283,7 @@ const DocumentUpload = ({ onUploadSuccess }) => {
     // Reset to 'private' in personal mode, null in organization mode
     setVisibility(isPersonalMode ? 'private' : null);
     setSelectedGroup(null);
+    setSelectedFolder(null);
     setUploadError(null);
     // Clear file input like original version
     if (fileInputRef.current) {
@@ -301,22 +318,74 @@ const DocumentUpload = ({ onUploadSuccess }) => {
     setShowGroupModal(true);
   };
 
+  const handleFolderSelect = async (folderId, folderName, folderData) => {
+    const folder = {
+      id: folderId,
+      name: folderName,
+      scope: folderData?.scope || 'private',
+      group_id: folderData?.group_id || null,
+      group_name: folderData?.group_name || null,
+    };
+    setSelectedFolder(folder);
+    setShowFolderModal(false);
+
+    // Auto-set visibility to 'group' when selecting a group folder
+    if (folder.group_id && folder.scope === 'organization' && !isPersonalMode) {
+      setVisibility('group');
+      // Auto-select the group associated with this folder
+      try {
+        const groupResponse = await userGroupsAPI.get(folder.group_id);
+        if (groupResponse.data) {
+          setSelectedGroup(groupResponse.data);
+          toast({
+            title: 'Group auto-selected',
+            description: `Visibility set to "${folder.group_name || 'group'}" to match the folder`,
+            status: 'info',
+            duration: 3000,
+            isClosable: true,
+          });
+        }
+      } catch {
+        // If we can't fetch the group, still set visibility to group
+        // but user will need to manually select the group
+        setSelectedGroup({ id: folder.group_id, name: folder.group_name || 'Group' });
+      }
+    }
+  };
+
+  const getFolderScopeDisplay = () => {
+    if (!selectedFolder) return null;
+    if (selectedFolder.scope === 'organization') {
+      if (selectedFolder.group_name) return `Group: ${selectedFolder.group_name}`;
+      return 'Organization';
+    }
+    return 'Private';
+  };
+
+  const getFolderScopeIcon = () => {
+    if (!selectedFolder) return FiFolder;
+    if (selectedFolder.scope === 'organization') {
+      return selectedFolder.group_id ? FiUsers : FiGlobe;
+    }
+    return FiLock;
+  };
+
   const isUploadDisabled = !selectedFile || uploading || !visibility || (visibility === 'group' && !selectedGroup);
 
   return (
     <>
       <Box bg="primary.900" rounded="xl" border="1px" borderColor="primary.600" overflow="hidden">
         {/* Header */}
-        <Box 
-          bg="primary.800" 
-          p={6} 
-          borderBottom="1px" 
+        <Box
+          bg="primary.800"
+          p={6}
+          borderBottom="1px"
           borderColor="primary.600"
         >
           <HStack spacing={3}>
-            <Box 
-              p={2} 
-              bg="accent.500" 
+            <Box
+              p={2}
+              bg="accent.500"
               rounded="lg"
               display="flex"
               alignItems="center"
@@ -339,9 +408,9 @@ const DocumentUpload = ({ onUploadSuccess }) => {
 
         <VStack spacing={6} align="stretch" p={6}>
           {uploadError && (
-            <Alert 
-              status="error" 
-              variant="left-accent" 
+            <Alert
+              status="error"
+              variant="left-accent"
               rounded="lg"
               bg="red.900"
               borderColor="red.500"
@@ -369,12 +438,75 @@ const DocumentUpload = ({ onUploadSuccess }) => {
 
           {selectedFile && (
             <>
+              <Divider borderColor="primary.600" />
+
+              {/* Step 2: Select Folder (Optional) */}
+              <VStack align="stretch" spacing={3}>
+                <HStack justify="space-between">
+                  <Text fontSize="sm" fontWeight="medium" color="gray.300">
+                    Destination Folder
+                  </Text>
+                  {selectedFolder && (
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      color="gray.500"
+                      onClick={() => setSelectedFolder(null)}
+                      _hover={{ color: 'white' }}
+                    >
+                      Clear
+                    </Button>
+                  )}
+                </HStack>
+
+                {selectedFolder ? (
+                  <Box
+                    p={3}
+                    bg="primary.800"
+                    border="1px"
+                    borderColor="primary.600"
+                    rounded="lg"
+                    cursor="pointer"
+                    onClick={() => setShowFolderModal(true)}
+                    _hover={{ borderColor: 'primary.500' }}
+                    transition="all 0.15s"
+                  >
+                    <HStack spacing={3}>
+                      <Icon as={FiFolder} boxSize={5} color="accent.400" />
+                      <VStack align="start" spacing={0} flex={1} minW={0}>
+                        <Text fontSize="sm" color="white" fontWeight="medium" noOfLines={1}>
+                          {selectedFolder.name}
+                        </Text>
+                        <HStack spacing={1.5} fontSize="xs" color="gray.500">
+                          <Icon as={getFolderScopeIcon()} boxSize={3} />
+                          <Text>{getFolderScopeDisplay()}</Text>
+                        </HStack>
+                      </VStack>
+                      <Icon as={FiChevronRight} boxSize={4} color="gray.600" />
+                    </HStack>
+                  </Box>
+                ) : (
+                  <Button
+                    leftIcon={<FiFolder />}
+                    variant="outline"
+                    size="sm"
+                    color="gray.400"
+                    borderColor="primary.600"
+                    onClick={() => setShowFolderModal(true)}
+                    _hover={{ bg: 'primary.800', borderColor: 'accent.500', color: 'white' }}
+                    fontWeight="normal"
+                  >
+                    Select a folder (optional)
+                  </Button>
+                )}
+              </VStack>
+
               {/* Only show visibility settings in organization mode */}
               {!isPersonalMode && (
                 <>
                   <Divider borderColor="primary.600" />
 
-                  {/* Step 2: Set Visibility */}
+                  {/* Step 3: Set Visibility */}
                   <VisibilitySelector
                     visibility={visibility}
                     selectedGroup={selectedGroup}
@@ -399,7 +531,7 @@ const DocumentUpload = ({ onUploadSuccess }) => {
 
               <Divider borderColor="primary.600" />
 
-              {/* Step 3: Upload */}
+              {/* Upload */}
               <UploadButton
                 uploading={uploading}
                 uploadProgress={uploadProgress}
@@ -422,6 +554,15 @@ const DocumentUpload = ({ onUploadSuccess }) => {
         selectedGroup={selectedGroup}
         onGroupSelect={handleGroupSelect}
         onGroupsUpdate={fetchUserGroups}
+      />
+
+      {/* Folder Selection Modal */}
+      <FoldersModal
+        isOpen={showFolderModal}
+        onClose={() => setShowFolderModal(false)}
+        onSelectFolder={handleFolderSelect}
+        mode={isPersonalMode ? 'personal' : 'organization'}
+        selectionMode
       />
     </>
   );

@@ -29,6 +29,8 @@ import {
   FiEyeOff,
   FiGlobe,
   FiSearch,
+  FiFolder,
+  FiChevronRight,
 } from 'react-icons/fi';
 import { formatFileSize, formatDate } from '../utils/formatters';
 import { documentsAPI } from '../utils/api';
@@ -39,7 +41,9 @@ const SearchResults = ({
   searchTime, 
   isLoading, 
   onViewDocument, 
-  onSearchUpdate 
+  onSearchUpdate,
+  folderResults = [],
+  onFolderNavigate,
 }) => {
   const [deleteId, setDeleteId] = useState(null);
   const [deleteName, setDeleteName] = useState('');
@@ -134,7 +138,9 @@ const SearchResults = ({
     );
   }
 
-  if (!results || results.length === 0) {
+  const hasResults = (results && results.length > 0) || (folderResults && folderResults.length > 0);
+
+  if (!hasResults) {
     if (!query) {
       return null;
     }
@@ -155,12 +161,14 @@ const SearchResults = ({
             No results found
           </Text>
           <Text color="gray.400" fontSize="sm" textAlign="center" maxW="300px">
-            No documents match "{query}". Try different keywords or check your spelling.
+            No documents or folders match "{query}". Try different keywords or check your spelling.
           </Text>
         </VStack>
       </Center>
     );
   }
+
+  const totalResults = (results?.length || 0) + (folderResults?.length || 0);
 
   return (
     <>
@@ -169,7 +177,8 @@ const SearchResults = ({
         <Box pb={3} borderBottom="2px" borderColor="whiteAlpha.200">
           <HStack justify="space-between" align="baseline">
             <Text color="gray.400" fontSize="sm" fontWeight="normal">
-              {results.length} result{results.length !== 1 ? 's' : ''} for "{query}"
+              {totalResults} result{totalResults !== 1 ? 's' : ''} for "{query}"
+              {folderResults.length > 0 && ` (${folderResults.length} folder${folderResults.length !== 1 ? 's' : ''})`}
             </Text>
             <Text color="gray.500" fontSize="xs">
               {searchTime}ms
@@ -177,9 +186,50 @@ const SearchResults = ({
           </HStack>
         </Box>
 
-        {/* Results */}
+        {/* Folder Results */}
+        {folderResults.length > 0 && (
+          <VStack spacing={0} align="stretch" pt={1}>
+            <Text color="gray.500" fontSize="xs" fontWeight="medium" px={1} py={2} textTransform="uppercase" letterSpacing="wider">
+              Folders
+            </Text>
+            {folderResults.map((folder) => (
+              <Box
+                key={`folder-${folder.id}`}
+                py={3}
+                px={3}
+                borderBottom="1px"
+                borderColor="whiteAlpha.100"
+                _hover={{ bg: 'whiteAlpha.50' }}
+                transition="background 0.15s"
+                cursor="pointer"
+                onClick={() => onFolderNavigate && onFolderNavigate(folder.id)}
+              >
+                <HStack spacing={3}>
+                  <Icon as={FiFolder} boxSize={5} color="accent.400" />
+                  <VStack align="start" spacing={0} flex={1}>
+                    <Text color="white" fontSize="sm" fontWeight="medium">
+                      {folder.name}
+                    </Text>
+                    <Text color="gray.500" fontSize="xs">
+                      {folder.document_count || 0} file{folder.document_count !== 1 ? 's' : ''}
+                      {folder.subfolder_count > 0 && ` · ${folder.subfolder_count} folder${folder.subfolder_count !== 1 ? 's' : ''}`}
+                    </Text>
+                  </VStack>
+                  <Icon as={FiChevronRight} boxSize={4} color="gray.600" />
+                </HStack>
+              </Box>
+            ))}
+          </VStack>
+        )}
+
+        {/* Document Results */}
         <VStack spacing={0} align="stretch" pt={1}>
-          {results.map((result) => {
+          {folderResults.length > 0 && results && results.length > 0 && (
+            <Text color="gray.500" fontSize="xs" fontWeight="medium" px={1} py={2} textTransform="uppercase" letterSpacing="wider">
+              Documents
+            </Text>
+          )}
+          {(results || []).map((result) => {
             const fileIconData = getFileIcon(result.filename);
             const visibilityInfo = getVisibilityInfo(result);
 

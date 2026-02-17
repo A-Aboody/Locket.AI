@@ -56,7 +56,8 @@ class User(Base):
         "Document", 
         back_populates="uploaded_by",
         cascade="all, delete-orphan",
-        lazy="dynamic"
+        lazy="dynamic",
+        foreign_keys=lambda: [Document.__table__.c.uploaded_by_id]
     )
     created_groups = relationship(
         "UserGroup",
@@ -84,7 +85,7 @@ class User(Base):
         "OrganizationMember",
         back_populates="user",
         uselist=False,
-        foreign_keys="OrganizationMember.user_id"
+        foreign_keys=lambda: [OrganizationMember.__table__.c.user_id]
     )
     organization = relationship(
         "Organization",
@@ -297,6 +298,36 @@ class OrganizationInvite(Base):
         return f"<OrganizationInvite(id={self.id}, org_id={self.organization_id}, type='{self.invite_type}')>"
 
 
+class Folder(Base):
+    """Virtual folder for organizing documents"""
+    __tablename__ = "folders"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    name = Column(String(255), nullable=False)
+    parent_id = Column(Integer, ForeignKey("folders.id", ondelete="CASCADE"), nullable=True, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True, index=True)
+    scope = Column(String(20), default="private", nullable=False)  # 'private' or 'organization'
+    group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    # Relationships
+    parent = relationship("Folder", remote_side=[id], backref="children")
+    owner = relationship("User")
+    organization = relationship("Organization")
+    group = relationship("UserGroup")
+    documents = relationship("Document", back_populates="folder")
+
+    __table_args__ = (
+        Index('ix_folders_owner_parent', 'owner_id', 'parent_id'),
+        Index('ix_folders_scope_org_group', 'scope', 'organization_id', 'group_id'),
+    )
+
+    def __repr__(self):
+        return f"<Folder(id={self.id}, name='{self.name}', scope='{self.scope}', parent_id={self.parent_id})>"
+
+
 class Document(Base):
     """Document model for storing uploaded files and metadata"""
     __tablename__ = "documents"
@@ -321,17 +352,29 @@ class Document(Base):
     summary = Column(Text, nullable=True)  # AI-generated summary (cached)
     summary_generated_at = Column(DateTime, nullable=True)  # Track when summary was generated
 
+    # Trash / soft-delete fields
+    is_trashed = Column(Boolean, default=False, nullable=False, index=True)
+    trashed_at = Column(DateTime, nullable=True)
+    trashed_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    # Folder support
+    folder_id = Column(Integer, ForeignKey("folders.id", ondelete="SET NULL"), nullable=True, index=True)
+
     uploaded_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     uploaded_by_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    
+
     # Relationships
-    uploaded_by = relationship("User", back_populates="documents")
+    uploaded_by = relationship("User", back_populates="documents", foreign_keys=[uploaded_by_id])
     user_group = relationship("UserGroup", back_populates="documents")
     organization = relationship("Organization", back_populates="documents")
+    folder = relationship("Folder", back_populates="documents")
 
     # Indexes
-    __table_args__ = (Index('ix_documents_org_id', 'organization_id'),)
+    __table_args__ = (
+        Index('ix_documents_org_id', 'organization_id'),
+        Index('ix_documents_folder_id', 'folder_id'),
+    )
 
     def __repr__(self):
         return f"<Document(id={self.id}, filename='{self.filename}', visibility='{self.visibility}')>"
