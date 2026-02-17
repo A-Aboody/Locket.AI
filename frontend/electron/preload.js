@@ -36,4 +36,8 @@ contextBridge.exposeInMainWorld('electron', {
   requestPendingInvite: () => {
     ipcRenderer.send('request-pending-invite');
   },
+
+  getBackendUrl: () => {
+    return ipcRenderer.sendSync('get-backend-url');
+  },
 });

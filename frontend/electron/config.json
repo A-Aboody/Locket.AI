@@ -1,0 +1,4 @@
+{
+  "backendUrl": "http://192.168.200.10:8001",
+  "environment": "production"
+}

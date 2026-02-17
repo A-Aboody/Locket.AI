@@ -21,7 +21,23 @@ const PROJECT_ROOT = isDev
 
 const BACKEND_PATH = path.join(PROJECT_ROOT, 'backend');
 const VITE_DEV_SERVER = 'http://localhost:5173';
-const BACKEND_URL = 'http://127.0.0.1:8001';
+
+// Load config for production backend URL
+let appConfig = {};
+const configPath = path.join(__dirname, 'config.json');
+try {
+  if (fs.existsSync(configPath)) {
+    appConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    console.log('[Config] Loaded config from:', configPath);
+  }
+} catch (err) {
+  console.warn('[Config] Failed to load config.json:', err.message);
+}
+
+// In development, use local backend. In production, use config or default.
+const BACKEND_URL = isDev
+  ? 'http://127.0.0.1:8001'
+  : (appConfig.backendUrl || 'http://127.0.0.1:8001');
 
 // File association - supported file types
 const SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.doc', '.txt'];
@@ -520,9 +536,15 @@ function createMainWindow() {
   // Handle navigation
   mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
     const parsedUrl = new URL(navigationUrl);
-    
-    // Allow localhost and our backend for development
-    if (parsedUrl.hostname !== 'localhost' && parsedUrl.hostname !== '127.0.0.1') {
+
+    // Allow localhost and configured backend host
+    const allowedHosts = ['localhost', '127.0.0.1'];
+    try {
+      const backendHost = new URL(BACKEND_URL).hostname;
+      allowedHosts.push(backendHost);
+    } catch (e) { /* ignore parse errors */ }
+
+    if (!allowedHosts.includes(parsedUrl.hostname)) {
       event.preventDefault();
       console.warn('[Security] Blocked navigation to:', navigationUrl);
     }
@@ -674,22 +696,57 @@ if (!gotTheLock) {
     createLoadingWindow();
 
     try {
-      // Ensure Docker is running and start containers
-      console.log('[Startup] Starting Docker and backend services...');
-      await ensureDockerRunning();
+      if (isDev) {
+        // Development mode: manage local Docker containers
+        console.log('[Startup] Starting Docker and backend services...');
+        await ensureDockerRunning();
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } else {
+        // Production mode: backend is hosted remotely (Raspberry Pi)
+        // Just verify connectivity
+        console.log('[Startup] Production mode - connecting to remote backend:', BACKEND_URL);
+        updateProgress('backend-check', 'Connecting to backend...', 30);
 
-      // Wait a moment for everything to settle
-      await new Promise(resolve => setTimeout(resolve, 2000));
+        let connected = false;
+        for (let attempt = 1; attempt <= 5; attempt++) {
+          try {
+            const response = await axios.get(`${BACKEND_URL}/api/health`, { timeout: 5000 });
+            if (response.data && (response.data.status === 'healthy' || response.data.status === 'degraded')) {
+              connected = true;
+              updateProgress('backend-check', 'Connected to backend', 100);
+              console.log('[Startup] Backend connected successfully');
+              break;
+            }
+          } catch (err) {
+            console.log(`[Startup] Connection attempt ${attempt}/5 failed:`, err.message);
+            updateProgress('backend-check', `Connecting to backend (attempt ${attempt}/5)...`, 30 + attempt * 12);
+            await new Promise(resolve => setTimeout(resolve, 3000));
+          }
+        }
+
+        if (!connected) {
+          throw new Error(
+            'Unable to connect to the backend server.\n\n' +
+            `Tried connecting to: ${BACKEND_URL}\n\n` +
+            'Please check:\n' +
+            '1. The backend server is running\n' +
+            '2. You are connected to the correct network\n' +
+            '3. The backend URL in config.json is correct'
+          );
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
 
       // Create main window
       createMainWindow();
 
     } catch (error) {
       console.error('[App] Startup failed:', error);
-      
+
       // Show error in loading window
-      updateError(`Startup failed: ${error.message}\n\nPlease check Docker Desktop and try again.`);
-      
+      updateError(`Startup failed: ${error.message}\n\nPlease check your connection and try again.`);
+
       // Keep loading window open so user can see the error
       // User can close the app from there
     }
@@ -749,6 +806,11 @@ function gracefulShutdown() {
 // Handle various shutdown signals
 process.on('SIGTERM', gracefulShutdown);
 process.on('SIGINT', gracefulShutdown);
+
+// IPC Handler for backend URL
+ipcMain.on('get-backend-url', (event) => {
+  event.returnValue = `${BACKEND_URL}/api`;
+});
 
 // IPC Handlers for file association
 // Handle renderer request for pending file (after auth)

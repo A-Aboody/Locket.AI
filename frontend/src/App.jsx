@@ -1,10 +1,9 @@
 // frontend/src/App.jsx
 import { useEffect, useState } from 'react';
-import { Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import { usePendingFile } from './contexts/PendingFileContext';
 import { usePendingInvite } from './contexts/PendingInviteContext';
 import ProtectedRoute from './components/ProtectedRoute';
-import HeroLandingPage from './pages/HeroLandingPage';
 import HomePage from './pages/HomePage';
 import AllDocumentsPage from './pages/AllDocumentsPage';
 import MyUploadsPage from './pages/MyUploadsPage';
@@ -82,7 +81,7 @@ function App() {
   return (
     <>
       <Routes>
-        <Route path="/" element={<HeroLandingPage />} />
+        <Route path="/" element={<Navigate to="/auth" replace />} />
         <Route
           path="/dashboard"
           element={

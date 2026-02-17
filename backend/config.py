@@ -63,7 +63,7 @@ class Config:
     print(f"[CONFIG] Token expiry: {ACCESS_TOKEN_EXPIRE_MINUTES} minutes")
     print(f"[CONFIG] Host: {HOST}:{PORT}")
     
-    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:5174").split(",")
+    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:5174,file://,app://").split(",")
     print(f"[CONFIG] CORS origins: {CORS_ORIGINS}")
     
     # Document Upload Settings
