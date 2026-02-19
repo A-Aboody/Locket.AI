@@ -6,7 +6,7 @@ Document Retrieval System API with Enhanced Authentication
 
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
@@ -15,6 +15,8 @@ import os
 import uuid
 import traceback
 import logging
+import io
+import zipfile
 
 from config import config
 from db_config import get_db
@@ -1870,8 +1872,97 @@ def update_folder(
     if not crud.can_user_modify_folder(db, current_user.id, folder_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to rename this folder")
 
-    updated = crud.rename_folder(db, folder_id, folder_data.name)
+    updated = folder
+
+    if folder_data.name:
+        updated = crud.rename_folder(db, folder_id, folder_data.name)
+
+    if folder_data.group_id is not None:
+        org_id = current_user.organization_id if hasattr(current_user, 'organization_id') else None
+        updated = crud.update_folder_group(db, folder_id, folder_data.group_id, org_id)
+
     return _folder_response(updated, db)
+
+
+@app.put("/api/folders/{folder_id}/move", response_model=schemas.FolderResponse)
+def move_folder(
+    folder_id: int,
+    move_data: schemas.FolderMoveRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Move a folder to a different parent folder (or root)"""
+    folder = crud.get_folder_by_id(db, folder_id)
+
+    if not folder:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found")
+
+    if not crud.can_user_modify_folder(db, current_user.id, folder_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to move this folder")
+
+    # Validate target parent if provided
+    if move_data.parent_id is not None:
+        target = crud.get_folder_by_id(db, move_data.parent_id)
+        if not target:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target folder not found")
+
+    moved = crud.move_folder(db, folder_id, move_data.parent_id)
+    if not moved:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot move folder: would create circular reference")
+
+    return _folder_response(moved, db)
+
+
+@app.get("/api/folders/{folder_id}/download")
+def download_folder_zip(
+    folder_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Download all documents in a folder (and subfolders) as a zip file"""
+    folder = crud.get_folder_by_id(db, folder_id)
+
+    if not folder:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found")
+
+    if not crud.can_user_access_folder(db, current_user.id, folder_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have access to this folder")
+
+    def collect_documents(fid: int, path_prefix: str):
+        """Recursively collect (document, zip_path) pairs."""
+        results = []
+        docs = db.query(Document).filter(
+            Document.folder_id == fid,
+            Document.is_trashed == False
+        ).all()
+        for doc in docs:
+            results.append((doc, f"{path_prefix}{doc.filename}"))
+
+        subfolders = db.query(Folder).filter(Folder.parent_id == fid).all()
+        for sub in subfolders:
+            if crud.can_user_access_folder(db, current_user.id, sub.id):
+                results.extend(collect_documents(sub.id, f"{path_prefix}{sub.name}/"))
+        return results
+
+    all_documents = collect_documents(folder_id, "")
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for doc, zip_path in all_documents:
+            if os.path.exists(doc.file_path):
+                zf.write(doc.file_path, arcname=zip_path)
+
+    zip_buffer.seek(0)
+
+    safe_name = folder.name.replace('"', '').replace('/', '_').replace('\\', '_')
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_name}.zip"',
+            "Cache-Control": "no-cache",
+        }
+    )
 
 
 @app.delete("/api/folders/{folder_id}", response_model=schemas.Message)

@@ -31,6 +31,7 @@ import NavTabs from '../custom_components/NavTabs';
 import PageTransition from '../custom_components/PageTransition';
 import FolderBreadcrumb from '../custom_components/FolderBreadcrumb';
 import FolderList from '../custom_components/FolderList';
+import FolderContextMenu from '../custom_components/FolderContextMenu';
 import CreateFolderModal from '../custom_components/CreateFolderModal';
 import FilterBar from '../custom_components/FilterBar';
 import { searchAPI, documentsAPI, foldersAPI, userGroupsAPI } from '../utils/api';
@@ -54,6 +55,7 @@ const MyUploadsPage = () => {
   const [currentFolderId, setCurrentFolderId] = useState(null);
   const [currentFolderData, setCurrentFolderData] = useState(null);
   const [folders, setFolders] = useState([]);
+  const [allFoldersFlat, setAllFoldersFlat] = useState([]);
   const [breadcrumb, setBreadcrumb] = useState([]);
   const [folderTransitioning, setFolderTransitioning] = useState(false);
   const { isOpen: isCreateFolderOpen, onOpen: onCreateFolderOpen, onClose: onCreateFolderClose } = useDisclosure();
@@ -107,91 +109,94 @@ const MyUploadsPage = () => {
     return () => window.removeEventListener('preferencesChanged', handlePrefsChange);
   }, []);
 
+  // Listen for direct folder navigation events (from FoldersModal when already on this page)
   useEffect(() => {
-    if (user) {
-      const loadData = async () => {
-        await Promise.all([fetchMyDocuments(), fetchFolders()]);
-        setFolderTransitioning(false);
-      };
-      loadData();
-      fetchGroups();
-    }
+    const handleDirectNav = (e) => {
+      if (e.detail?.folderId !== undefined) {
+        setCurrentFolderId(e.detail.folderId);
+      }
+    };
+    window.addEventListener('navigateToFolder', handleDirectNav);
+    return () => window.removeEventListener('navigateToFolder', handleDirectNav);
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+
+    const loadData = async () => {
+      await Promise.all([
+        (async () => {
+          try {
+            const mode = getCurrentMode();
+            const params = {};
+            if (currentFolderId !== null) params.folder_id = currentFolderId;
+            if (filters.file_type) params.file_type = filters.file_type;
+            if (filters.date_from) params.date_from = filters.date_from;
+            if (filters.date_to) params.date_to = filters.date_to;
+            const response = await documentsAPI.listMyDocuments(params);
+            let docs = response.data;
+            if (mode === 'personal') docs = docs.filter(doc => doc.visibility === 'private');
+            if (filters.visibility === 'private') docs = docs.filter(d => d.visibility === 'private');
+            else if (filters.visibility === 'organization') docs = docs.filter(d => d.visibility === 'organization');
+            else if (filters.visibility === 'group') {
+              if (filters.group_ids && filters.group_ids.length > 0)
+                docs = docs.filter(d => d.visibility === 'group' && filters.group_ids.includes(d.user_group_id));
+              else docs = docs.filter(d => d.visibility === 'group');
+            }
+            if (!cancelled) setDocuments(docs);
+          } catch (error) {
+            if (!cancelled) toast({ title: 'Failed to load documents', description: error.response?.data?.detail || 'An error occurred', status: 'error', duration: 5000, isClosable: true });
+          }
+        })(),
+        (async () => {
+          try {
+            const params = { mode: getCurrentMode() };
+            if (currentFolderId !== null) params.parent_id = currentFolderId;
+            const response = await foldersAPI.list(params);
+            const sortedFolders = [...response.data].sort((a, b) => a.id - b.id);
+            if (!cancelled) setFolders(sortedFolders);
+            if (currentFolderId) {
+              const folderResponse = await foldersAPI.get(currentFolderId);
+              if (!cancelled) {
+                setBreadcrumb(folderResponse.data.breadcrumb || []);
+                setCurrentFolderData(folderResponse.data);
+              }
+            } else {
+              if (!cancelled) {
+                setBreadcrumb([]);
+                setCurrentFolderData(null);
+              }
+            }
+          } catch {
+            if (!cancelled) setFolders([]);
+          }
+        })(),
+      ]);
+      if (!cancelled) setFolderTransitioning(false);
+    };
+
+    const fetchAllFolders = async () => {
+      try {
+        const response = await foldersAPI.list({ mode: getCurrentMode() });
+        if (!cancelled) setAllFoldersFlat(response.data || []);
+      } catch { if (!cancelled) setAllFoldersFlat([]); }
+    };
+
+    loadData();
+    fetchAllFolders();
+    fetchGroups();
+
+    return () => { cancelled = true; };
   }, [refreshTrigger, user, currentFolderId, filters]);
 
-  // Listen for mode changes and re-fetch
   useEffect(() => {
     const handleModeChange = () => {
-      if (user) {
-        fetchMyDocuments();
-      }
+      setRefreshTrigger(prev => prev + 1);
     };
     window.addEventListener('modeChanged', handleModeChange);
     return () => window.removeEventListener('modeChanged', handleModeChange);
-  }, [user, currentFolderId, filters]);
-
-  const fetchMyDocuments = async () => {
-    try {
-      const mode = getCurrentMode();
-      const params = {};
-      if (currentFolderId !== null) {
-        params.folder_id = currentFolderId;
-      }
-      if (filters.file_type) params.file_type = filters.file_type;
-      if (filters.date_from) params.date_from = filters.date_from;
-      if (filters.date_to) params.date_to = filters.date_to;
-      const response = await documentsAPI.listMyDocuments(params);
-      let docs = response.data;
-      // In personal mode, only show private documents
-      if (mode === 'personal') {
-        docs = docs.filter(doc => doc.visibility === 'private');
-      }
-      // Apply visibility filter client-side
-      if (filters.visibility === 'private') {
-        docs = docs.filter(d => d.visibility === 'private');
-      } else if (filters.visibility === 'organization') {
-        docs = docs.filter(d => d.visibility === 'organization');
-      } else if (filters.visibility === 'group') {
-        if (filters.group_ids && filters.group_ids.length > 0) {
-          docs = docs.filter(d => d.visibility === 'group' && filters.group_ids.includes(d.user_group_id));
-        } else {
-          docs = docs.filter(d => d.visibility === 'group');
-        }
-      }
-      setDocuments(docs);
-    } catch (error) {
-      toast({
-        title: 'Failed to load documents',
-        description: error.response?.data?.detail || 'An error occurred',
-        status: 'error',
-        duration: 5000,
-        isClosable: true,
-      });
-    }
-  };
-
-  const fetchFolders = async () => {
-    try {
-      const params = { mode: getCurrentMode() };
-      if (currentFolderId !== null) {
-        params.parent_id = currentFolderId;
-      }
-      const response = await foldersAPI.list(params);
-      // Sort folders by ID to maintain consistent order on refresh
-      const sortedFolders = [...response.data].sort((a, b) => a.id - b.id);
-      setFolders(sortedFolders);
-
-      if (currentFolderId) {
-        const folderResponse = await foldersAPI.get(currentFolderId);
-        setBreadcrumb(folderResponse.data.breadcrumb || []);
-        setCurrentFolderData(folderResponse.data);
-      } else {
-        setBreadcrumb([]);
-        setCurrentFolderData(null);
-      }
-    } catch (error) {
-      setFolders([]);
-    }
-  };
+  }, []);
 
   const fetchGroups = async () => {
     try {
@@ -202,8 +207,20 @@ const MyUploadsPage = () => {
     }
   };
 
+  // Breadcrumb context menu state
+  const [breadcrumbContextMenu, setBreadcrumbContextMenu] = useState({ visible: false, position: null, folder: null });
+
+  const handleBreadcrumbContextMenu = (e, folder) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setBreadcrumbContextMenu({ visible: true, position: { x: e.clientX, y: e.clientY }, folder });
+  };
+
+  const closeBreadcrumbContextMenu = () => {
+    setBreadcrumbContextMenu(prev => ({ ...prev, visible: false }));
+  };
+
   const handleFolderNavigate = (folderId) => {
-    setFolderTransitioning(true);
     setCurrentFolderId(folderId);
   };
 
@@ -434,6 +451,7 @@ const MyUploadsPage = () => {
                       breadcrumb={breadcrumb}
                       onNavigate={handleFolderNavigate}
                       rootLabel="My Uploads"
+                      onFolderContextMenu={handleBreadcrumbContextMenu}
                     />
                   )}
 
@@ -449,6 +467,8 @@ const MyUploadsPage = () => {
                         onNavigate={handleFolderNavigate}
                         onRefresh={handleSearchUpdate}
                         onRenameFolder={handleFolderRename}
+                        allFolders={allFoldersFlat}
+                        groups={groups}
                       />
                     )}
 
@@ -460,12 +480,13 @@ const MyUploadsPage = () => {
                       onRename={handleRename}
                       onMoveToFolder={handleMoveToFolder}
                       groups={groups}
-                      folders={folders}
+                      folders={allFoldersFlat}
                       emptyMessage="You haven't uploaded any documents yet"
                       viewMode={viewMode}
                       inlineFolders={folderDisplayMode === 'inline' && !filters.file_type && !filters.visibility ? folders : []}
                       onFolderNavigate={handleFolderNavigate}
                       onFolderRefresh={handleSearchUpdate}
+                      allFolders={allFoldersFlat}
                     />
                   </Box>
                 </Box>
@@ -499,6 +520,38 @@ const MyUploadsPage = () => {
         onSettings={handleSettings}
         onLogout={handleLogout}
         onViewDocument={handleViewDocumentFullScreen}
+      />
+
+      {/* Breadcrumb Folder Context Menu */}
+      <FolderContextMenu
+        position={breadcrumbContextMenu.position}
+        folder={breadcrumbContextMenu.folder}
+        isVisible={breadcrumbContextMenu.visible}
+        onClose={closeBreadcrumbContextMenu}
+        onOpen={(folderId) => handleFolderNavigate(folderId)}
+        onRename={(f) => {
+          const newName = prompt('Rename folder:', f.name);
+          if (newName && newName.trim() && newName.trim() !== f.name) {
+            foldersAPI.update(f.id, { name: newName.trim() }).then(() => {
+              toast({ title: 'Folder renamed', status: 'success', duration: 3000, isClosable: true });
+              handleSearchUpdate();
+            }).catch((err) => {
+              toast({ title: 'Rename failed', description: err.response?.data?.detail || 'An error occurred', status: 'error', duration: 5000, isClosable: true });
+            });
+          }
+        }}
+        onDelete={(f) => {
+          if (window.confirm(`Delete folder "${f.name}"? Documents inside will be moved to the parent folder.`)) {
+            foldersAPI.delete(f.id).then(() => {
+              toast({ title: 'Folder deleted', status: 'success', duration: 3000, isClosable: true });
+              handleSearchUpdate();
+            }).catch((err) => {
+              toast({ title: 'Delete failed', description: err.response?.data?.detail || 'An error occurred', status: 'error', duration: 5000, isClosable: true });
+            });
+          }
+        }}
+        folders={allFoldersFlat}
+        groups={groups}
       />
 
       {/* Create Folder Modal */}

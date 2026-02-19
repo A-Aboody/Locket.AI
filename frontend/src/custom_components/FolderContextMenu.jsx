@@ -1,29 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  Box,
-  VStack,
-  HStack,
-  Text,
-  Icon,
-  Divider,
-  useToast,
-} from '@chakra-ui/react';
-import {
-  FiEye,
-  FiDownload,
-  FiEdit2,
-  FiCopy,
-  FiTrash2,
-  FiUserPlus,
-  FiFolder,
-  FiChevronRight,
-  FiPlus,
-  FiRotateCcw,
-} from 'react-icons/fi';
+import { Box, VStack, HStack, Text, Icon, Divider, useToast } from '@chakra-ui/react';
+import { FiChevronRight, FiDownload, FiEdit2, FiTrash2, FiFolder, FiUserPlus, FiPlus } from 'react-icons/fi';
 
-// Compute viewport-clamped position synchronously — no state, no effect.
-const clampPosition = (pos, menuWidth = 220, menuHeight = 320) => {
+const clampPosition = (pos, menuWidth = 200, menuHeight = 340) => {
   if (!pos) return { x: 0, y: 0 };
   const vw = window.innerWidth;
   const vh = window.innerHeight;
@@ -130,35 +110,31 @@ const SubMenu = ({ items, onSelect, visible, onMouseEnter, onMouseLeave }) => {
   );
 };
 
-const ContextMenu = ({
+const FolderContextMenu = ({
   position,
-  document: doc,
+  folder,
   isVisible,
   onClose,
-  onView,
+  onOpen,
   onDownload,
   onRename,
-  onCopy,
   onDelete,
+  onMoveToFolder,
   onAddToGroup,
   onCreateGroup,
-  onMoveToFolder,
-  onRestore,
-  onDeleteForever,
-  groups = [],
   folders = [],
-  canDelete = true,
-  canAddToGroup = true,
-  isTrash = false,
+  groups = [],
+  canModify = true,
 }) => {
   const menuRef = useRef(null);
   const [activeSubmenu, setActiveSubmenu] = useState(null);
   const submenuTimerRef = useRef(null);
   const toast = useToast();
 
-  const lastDocRef = useRef(doc);
-  if (doc) lastDocRef.current = doc;
-  const displayDoc = doc || lastDocRef.current;
+  // Persist last valid folder/position so content holds during fade-out.
+  const lastFolderRef = useRef(folder);
+  if (folder) lastFolderRef.current = folder;
+  const displayFolder = folder || lastFolderRef.current;
 
   const lastPosRef = useRef(position);
   if (position) lastPosRef.current = position;
@@ -172,9 +148,7 @@ const ContextMenu = ({
     }
 
     const handleClickOutside = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
-        onClose();
-      }
+      if (menuRef.current && !menuRef.current.contains(e.target)) onClose();
     };
     const handleEscape = (e) => { if (e.key === 'Escape') onClose(); };
     const handleScroll = () => onClose();
@@ -190,8 +164,7 @@ const ContextMenu = ({
     };
   }, [isVisible, onClose]);
 
-  // Nothing has ever been right-clicked yet — nothing to render.
-  if (!displayDoc) return null;
+  if (!displayFolder) return null;
 
   const handleSubmenuEnter = (name) => {
     clearTimeout(submenuTimerRef.current);
@@ -207,6 +180,27 @@ const ContextMenu = ({
     onClose();
   };
 
+  // Build folder submenu items — exclude the folder itself and ALL its descendants
+  const getDescendantIds = (folderId, allFolders) => {
+    const ids = new Set();
+    const collect = (parentId) => {
+      allFolders.forEach(f => {
+        if (f.parent_id === parentId && !ids.has(f.id)) {
+          ids.add(f.id);
+          collect(f.id);
+        }
+      });
+    };
+    collect(folderId);
+    return ids;
+  };
+  const descendantIds = getDescendantIds(displayFolder.id, folders);
+  const folderSubmenuItems = [
+    { id: null, name: 'Root (no parent)', icon: FiFolder },
+    ...folders.filter(f => f.id !== displayFolder.id && !descendantIds.has(f.id)),
+  ];
+
+  // Build group submenu items
   const groupSubmenuItems = [
     ...groups.map(g => ({ ...g, icon: FiUserPlus })),
     ...(onCreateGroup ? [{ id: '__create__', name: ' Create new group', icon: FiPlus }] : []),
@@ -214,9 +208,9 @@ const ContextMenu = ({
 
   const handleGroupSelect = (group) => {
     if (group.id === '__create__') {
-      handleAction(() => onCreateGroup(displayDoc));
+      handleAction(() => onCreateGroup(displayFolder));
     } else {
-      handleAction(() => onAddToGroup(displayDoc, group.id));
+      handleAction(() => onAddToGroup(displayFolder, group.id));
     }
   };
 
@@ -250,52 +244,32 @@ const ContextMenu = ({
       <VStack spacing={0} align="stretch">
         <Box px={3} py={2} borderBottom="1px" borderColor="primary.600" mb={1}>
           <Text fontSize="xs" color="gray.500" noOfLines={1}>
-            {displayDoc.filename}
+            {displayFolder.name}
           </Text>
         </Box>
 
-        {isTrash ? (
-          <>
-            <MenuItem
-              icon={FiRotateCcw}
-              label="Restore"
-              onClick={() => handleAction(() => onRestore(displayDoc.id, displayDoc.filename))}
-            />
-            <Divider borderColor="primary.600" my={1} />
-            <MenuItem
-              icon={FiTrash2}
-              label="Delete forever"
-              danger
-              onClick={() => handleAction(() => onDeleteForever(displayDoc.id, displayDoc.filename))}
-            />
-          </>
-        ) : (
-          <>
-            <MenuItem
-              icon={FiEye}
-              label="View"
-              onClick={() => handleAction(() => onView(displayDoc.id))}
-            />
-            <MenuItem
-              icon={FiDownload}
-              label="Download"
-              onClick={() => handleAction(() => onDownload(displayDoc.id))}
-            />
+        <MenuItem
+          icon={FiChevronRight}
+          label="Open"
+          onClick={() => handleAction(() => onOpen && onOpen(displayFolder.id))}
+        />
+        <MenuItem
+          icon={FiDownload}
+          label="Download as zip"
+          onClick={() => handleAction(() => onDownload && onDownload(displayFolder))}
+        />
 
-            <Divider borderColor="primary.600" my={1} />
+        <Divider borderColor="primary.600" my={1} />
 
+        {canModify && (
+          <>
             <MenuItem
               icon={FiEdit2}
               label="Rename"
-              onClick={() => handleAction(() => onRename(displayDoc))}
-            />
-            <MenuItem
-              icon={FiCopy}
-              label="Make a copy"
-              onClick={() => handleAction(() => onCopy(displayDoc.id))}
+              onClick={() => handleAction(() => onRename && onRename(displayFolder))}
             />
 
-            {(folders.length > 0 || onMoveToFolder) && (
+            {(folderSubmenuItems.length > 0 && onMoveToFolder) && (
               <MenuItem
                 icon={FiFolder}
                 label="Move to folder"
@@ -303,20 +277,17 @@ const ContextMenu = ({
                 onMouseLeave={handleSubmenuLeave}
               >
                 <SubMenu
-                  items={[
-                    { id: null, name: 'Root (no folder)', icon: FiFolder },
-                    ...folders,
-                  ]}
+                  items={folderSubmenuItems}
                   onSelect={(targetFolder) => {
-                    // Cross-scope validation: prevent moving group docs into non-group folders and vice versa
+                    // Cross-scope validation: prevent moving group folders into non-group folders and vice versa
                     const targetFolderData = targetFolder.id ? folders.find(f => f.id === targetFolder.id) : null;
-                    const docIsGroup = displayDoc.visibility === 'group';
+                    const sourceIsGroup = displayFolder.scope === 'organization' && displayFolder.group_id;
                     const targetIsGroup = targetFolderData?.scope === 'organization' && targetFolderData?.group_id;
 
-                    if (docIsGroup && targetFolder.id !== null && !targetIsGroup) {
+                    if (sourceIsGroup && targetFolder.id !== null && !targetIsGroup) {
                       toast({
-                        title: 'Cannot move group document',
-                        description: 'Group documents cannot be moved into private or organization folders. Make a copy and move the copy instead.',
+                        title: 'Cannot move group folder',
+                        description: 'Group folders cannot be moved into private or organization folders. Make a copy and add it to the destination instead.',
                         status: 'warning',
                         duration: 6000,
                         isClosable: true,
@@ -324,10 +295,10 @@ const ContextMenu = ({
                       onClose();
                       return;
                     }
-                    if (!docIsGroup && targetIsGroup) {
+                    if (!sourceIsGroup && targetIsGroup) {
                       toast({
                         title: 'Cannot move to group folder',
-                        description: 'Private/organization documents cannot be moved into group folders. Make a copy and add it to the group instead.',
+                        description: 'Private/organization folders cannot be moved into group folders. Make a copy and add it to the group instead.',
                         status: 'warning',
                         duration: 6000,
                         isClosable: true,
@@ -335,7 +306,7 @@ const ContextMenu = ({
                       onClose();
                       return;
                     }
-                    handleAction(() => onMoveToFolder(displayDoc.id, targetFolder.id));
+                    handleAction(() => onMoveToFolder(displayFolder.id, targetFolder.id));
                   }}
                   visible={activeSubmenu === 'folders'}
                   onMouseEnter={() => handleSubmenuEnter('folders')}
@@ -344,7 +315,7 @@ const ContextMenu = ({
               </MenuItem>
             )}
 
-            {canAddToGroup && (
+            {(groups.length > 0 || onCreateGroup) && onAddToGroup && (
               <MenuItem
                 icon={FiUserPlus}
                 label="Add to group"
@@ -361,17 +332,14 @@ const ContextMenu = ({
               </MenuItem>
             )}
 
-            {canDelete && (
-              <>
-                <Divider borderColor="primary.600" my={1} />
-                <MenuItem
-                  icon={FiTrash2}
-                  label="Move to trash"
-                  danger
-                  onClick={() => handleAction(() => onDelete(displayDoc.id, displayDoc.filename))}
-                />
-              </>
-            )}
+            <Divider borderColor="primary.600" my={1} />
+
+            <MenuItem
+              icon={FiTrash2}
+              label="Delete"
+              danger
+              onClick={() => handleAction(() => onDelete && onDelete(displayFolder))}
+            />
           </>
         )}
       </VStack>
@@ -381,4 +349,4 @@ const ContextMenu = ({
   return createPortal(menuContent, document.body);
 };
 
-export default ContextMenu;
+export default FolderContextMenu;

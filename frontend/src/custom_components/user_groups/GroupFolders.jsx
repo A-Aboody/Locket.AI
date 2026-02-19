@@ -38,7 +38,6 @@ const GroupFolders = ({ groupId, groupName, isOwner, currentUserId, onViewDocume
   const [folderContents, setFolderContents] = useState({});
   const [loadingContents, setLoadingContents] = useState({});
   const [contextMenu, setContextMenu] = useState({ visible: false, position: null, doc: null, folderId: null });
-  const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
   const menuRef = useRef(null);
   const toast = useToast();
 
@@ -108,48 +107,43 @@ const GroupFolders = ({ groupId, groupName, isOwner, currentUserId, onViewDocume
   const handleContextMenu = (e, doc, folderId) => {
     e.preventDefault();
     e.stopPropagation();
-    setContextMenu({ visible: false, position: null, doc: null, folderId: null });
-    requestAnimationFrame(() => {
-      setContextMenu({
-        visible: true,
-        position: { x: e.clientX, y: e.clientY },
-        doc,
-        folderId,
-      });
+    setContextMenu({
+      visible: true,
+      position: { x: e.clientX, y: e.clientY },
+      doc,
+      folderId,
     });
   };
 
-  useEffect(() => {
-    if (contextMenu.visible && contextMenu.position) {
-      const menuWidth = 180;
-      const menuHeight = 200;
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-
-      let x = contextMenu.position.x;
-      let y = contextMenu.position.y;
-
-      if (x + menuWidth > viewportWidth - 10) x = viewportWidth - menuWidth - 10;
-      if (y + menuHeight > viewportHeight - 10) y = viewportHeight - menuHeight - 10;
-      if (x < 10) x = 10;
-      if (y < 10) y = 10;
-
-      setMenuPos({ x, y });
-    }
-  }, [contextMenu.visible, contextMenu.position]);
+  // Compute menu position synchronously during render (no state/effect).
+  const menuPos = (() => {
+    const pos = contextMenu.position;
+    if (!pos) return { x: 0, y: 0 };
+    const menuWidth = 180;
+    const menuHeight = 200;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let x = pos.x;
+    let y = pos.y;
+    if (x + menuWidth > vw - 10) x = vw - menuWidth - 10;
+    if (y + menuHeight > vh - 10) y = vh - menuHeight - 10;
+    if (x < 10) x = 10;
+    if (y < 10) y = 10;
+    return { x, y };
+  })();
 
   useEffect(() => {
     if (!contextMenu.visible) return;
 
     const handleClickOutside = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
-        setContextMenu({ visible: false, position: null, doc: null, folderId: null });
+        setContextMenu(prev => ({ ...prev, visible: false }));
       }
     };
     const handleEscape = (e) => {
-      if (e.key === 'Escape') setContextMenu({ visible: false, position: null, doc: null, folderId: null });
+      if (e.key === 'Escape') setContextMenu(prev => ({ ...prev, visible: false }));
     };
-    const handleScroll = () => setContextMenu({ visible: false, position: null, doc: null, folderId: null });
+    const handleScroll = () => setContextMenu(prev => ({ ...prev, visible: false }));
 
     document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('keydown', handleEscape);
@@ -163,20 +157,20 @@ const GroupFolders = ({ groupId, groupName, isOwner, currentUserId, onViewDocume
   }, [contextMenu.visible]);
 
   const handleView = (docId) => {
-    setContextMenu({ visible: false, position: null, doc: null, folderId: null });
+    setContextMenu(prev => ({ ...prev, visible: false }));
     if (onViewDocument) {
       onViewDocument(docId);
     }
   };
 
   const handleDownload = (docId) => {
-    setContextMenu({ visible: false, position: null, doc: null, folderId: null });
+    setContextMenu(prev => ({ ...prev, visible: false }));
     const url = documentsAPI.getFileUrl(docId);
     window.open(url, '_blank');
   };
 
   const handleCopy = async (docId) => {
-    setContextMenu({ visible: false, position: null, doc: null, folderId: null });
+    setContextMenu(prev => ({ ...prev, visible: false }));
     try {
       await documentsAPI.copy(docId);
       toast({
@@ -405,7 +399,7 @@ const GroupFolders = ({ groupId, groupName, isOwner, currentUserId, onViewDocume
       </VStack>
 
       {/* Context Menu for documents */}
-      {contextMenu.visible && contextMenu.doc && createPortal(
+      {contextMenu.doc && createPortal(
         <Box
           ref={menuRef}
           position="fixed"
@@ -421,6 +415,16 @@ const GroupFolders = ({ groupId, groupName, isOwner, currentUserId, onViewDocume
           zIndex={10000}
           boxShadow="0 8px 32px rgba(0, 0, 0, 0.4)"
           onContextMenu={(e) => e.preventDefault()}
+          style={{
+            opacity: contextMenu.visible ? 1 : 0,
+            transform: contextMenu.visible ? 'scale(1)' : 'scale(0.96)',
+            transition: contextMenu.visible
+              ? 'opacity 0.12s ease, transform 0.12s ease'
+              : 'opacity 0.08s ease, transform 0.08s ease',
+            pointerEvents: contextMenu.visible ? 'auto' : 'none',
+            transformOrigin: 'top left',
+            willChange: 'opacity, transform',
+          }}
         >
           <VStack spacing={0} align="stretch">
             {/* Document name header */}

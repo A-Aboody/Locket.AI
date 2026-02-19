@@ -866,8 +866,15 @@ class FolderCreate(BaseModel):
 
 
 class FolderUpdate(BaseModel):
-    """Schema for renaming a folder"""
-    name: str = Field(..., min_length=1, max_length=255)
+    """Schema for updating a folder (rename, move, change group)"""
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    parent_id: Optional[int] = None
+    group_id: Optional[int] = None
+
+
+class FolderMoveRequest(BaseModel):
+    """Schema for moving a folder to another parent"""
+    parent_id: Optional[int] = None  # None = move to root
 
 
 class FolderResponse(BaseModel):

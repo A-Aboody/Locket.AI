@@ -2257,6 +2257,51 @@ def delete_folder(db: Session, folder_id: int) -> bool:
     return True
 
 
+def move_folder(db: Session, folder_id: int, new_parent_id: Optional[int]) -> Optional[Folder]:
+    """Move a folder to a new parent (None = root). Prevents circular references."""
+    folder = get_folder_by_id(db, folder_id)
+    if not folder:
+        return None
+
+    # Prevent moving to self
+    if new_parent_id == folder_id:
+        return None
+
+    # Prevent circular reference: walk up from new_parent to root
+    if new_parent_id is not None:
+        current = get_folder_by_id(db, new_parent_id)
+        while current:
+            if current.id == folder_id:
+                return None  # Would create a cycle
+            current = get_folder_by_id(db, current.parent_id) if current.parent_id else None
+
+    folder.parent_id = new_parent_id
+    folder.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(folder)
+    return folder
+
+
+def update_folder_group(db: Session, folder_id: int, group_id: Optional[int], organization_id: Optional[int] = None) -> Optional[Folder]:
+    """Update a folder's group assignment"""
+    folder = get_folder_by_id(db, folder_id)
+    if not folder:
+        return None
+
+    if group_id is not None:
+        folder.scope = 'organization'
+        folder.group_id = group_id
+        if organization_id:
+            folder.organization_id = organization_id
+    else:
+        folder.group_id = None
+
+    folder.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(folder)
+    return folder
+
+
 def move_document_to_folder(db: Session, document_id: int, folder_id: Optional[int]) -> Optional[Document]:
     """Move a document to a folder (None = root)"""
     document = get_document_by_id(db, document_id)

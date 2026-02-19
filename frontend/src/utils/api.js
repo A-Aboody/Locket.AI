@@ -423,8 +423,15 @@ export const foldersAPI = {
   get: (folderId) => api.get(`/folders/${folderId}`),
   update: (folderId, data) => api.put(`/folders/${folderId}`, data),
   delete: (folderId) => api.delete(`/folders/${folderId}`),
+  move: (folderId, parentId) =>
+    api.put(`/folders/${folderId}/move`, { parent_id: parentId }),
   moveDocument: (documentId, folderId) =>
     api.put(`/documents/${documentId}/move`, { folder_id: folderId }),
+  downloadZip: (folderId) =>
+    api.get(`/folders/${folderId}/download`, {
+      responseType: 'blob',
+      timeout: 300000,
+    }),
 };
 
 // Users API for search and management

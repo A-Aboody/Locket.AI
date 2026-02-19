@@ -62,7 +62,6 @@ const FoldersModal = ({ isOpen, onClose, onSelectFolder, mode, selectionMode = f
   const [docsLoading, setDocsLoading] = useState(false);
   const [currentFolderData, setCurrentFolderData] = useState(null);
   const [contextMenu, setContextMenu] = useState({ visible: false, position: null, folder: null });
-  const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
   const [renameFolder, setRenameFolder] = useState(null);
   const [renameValue, setRenameValue] = useState('');
   const [deleteFolderState, setDeleteFolderState] = useState(null);
@@ -196,31 +195,31 @@ const FoldersModal = ({ isOpen, onClose, onSelectFolder, mode, selectionMode = f
     onClose();
   };
 
-  // Context menu positioning
-  useEffect(() => {
-    if (contextMenu.visible && contextMenu.position) {
-      const menuWidth = 160;
-      const menuHeight = 140;
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      let x = contextMenu.position.x;
-      let y = contextMenu.position.y;
-      if (x + menuWidth > vw - 10) x = vw - menuWidth - 10;
-      if (y + menuHeight > vh - 10) y = vh - menuHeight - 10;
-      if (x < 10) x = 10;
-      if (y < 10) y = 10;
-      setMenuPos({ x, y });
-    }
-  }, [contextMenu.visible, contextMenu.position]);
+  // Compute menu position synchronously during render (no state/effect).
+  const menuPos = (() => {
+    const pos = contextMenu.position;
+    if (!pos) return { x: 0, y: 0 };
+    const menuWidth = 160;
+    const menuHeight = 140;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let x = pos.x;
+    let y = pos.y;
+    if (x + menuWidth > vw - 10) x = vw - menuWidth - 10;
+    if (y + menuHeight > vh - 10) y = vh - menuHeight - 10;
+    if (x < 10) x = 10;
+    if (y < 10) y = 10;
+    return { x, y };
+  })();
 
   useEffect(() => {
     if (!contextMenu.visible) return;
     const handleClickOutside = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target))
-        setContextMenu({ visible: false, position: null, folder: null });
+        setContextMenu(prev => ({ ...prev, visible: false }));
     };
     const handleEscape = (e) => {
-      if (e.key === 'Escape') setContextMenu({ visible: false, position: null, folder: null });
+      if (e.key === 'Escape') setContextMenu(prev => ({ ...prev, visible: false }));
     };
     document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('keydown', handleEscape);
@@ -233,18 +232,15 @@ const FoldersModal = ({ isOpen, onClose, onSelectFolder, mode, selectionMode = f
   const handleContextMenu = (e, folder) => {
     e.preventDefault();
     e.stopPropagation();
-    setDocContextMenu({ visible: false, position: null, document: null });
-    setContextMenu({ visible: false, position: null, folder: null });
-    requestAnimationFrame(() => {
-      setContextMenu({ visible: true, position: { x: e.clientX, y: e.clientY }, folder });
-    });
+    setDocContextMenu(prev => ({ ...prev, visible: false }));
+    setContextMenu({ visible: true, position: { x: e.clientX, y: e.clientY }, folder });
   };
 
   const handleRenameClick = () => {
     if (contextMenu.folder) {
       setRenameFolder(contextMenu.folder);
       setRenameValue(contextMenu.folder.name);
-      setContextMenu({ visible: false, position: null, folder: null });
+      setContextMenu(prev => ({ ...prev, visible: false }));
       onRenameOpen();
     }
   };
@@ -268,7 +264,7 @@ const FoldersModal = ({ isOpen, onClose, onSelectFolder, mode, selectionMode = f
   const handleDeleteClick = () => {
     if (contextMenu.folder) {
       setDeleteFolderState(contextMenu.folder);
-      setContextMenu({ visible: false, position: null, folder: null });
+      setContextMenu(prev => ({ ...prev, visible: false }));
       onDeleteOpen();
     }
   };
@@ -290,8 +286,8 @@ const FoldersModal = ({ isOpen, onClose, onSelectFolder, mode, selectionMode = f
 
   const handleOpenClick = () => {
     if (contextMenu.folder) {
+      setContextMenu(prev => ({ ...prev, visible: false }));
       handleNavigate(contextMenu.folder.id);
-      setContextMenu({ visible: false, position: null, folder: null });
     }
   };
 
@@ -299,11 +295,8 @@ const FoldersModal = ({ isOpen, onClose, onSelectFolder, mode, selectionMode = f
   const handleDocContextMenu = (e, doc) => {
     e.preventDefault();
     e.stopPropagation();
-    setContextMenu({ visible: false, position: null, folder: null });
-    setDocContextMenu({ visible: false, position: null, document: null });
-    requestAnimationFrame(() => {
-      setDocContextMenu({ visible: true, position: { x: e.clientX, y: e.clientY }, document: doc });
-    });
+    setContextMenu(prev => ({ ...prev, visible: false }));
+    setDocContextMenu({ visible: true, position: { x: e.clientX, y: e.clientY }, document: doc });
   };
 
   const handleDocView = (docId) => {
@@ -526,6 +519,7 @@ const FoldersModal = ({ isOpen, onClose, onSelectFolder, mode, selectionMode = f
                       <BreadcrumbLink
                         color={idx === breadcrumb.length - 1 ? 'white' : 'gray.500'}
                         onClick={() => handleNavigate(item.id)}
+                        onContextMenu={(e) => handleContextMenu(e, item)}
                         _hover={{ color: 'accent.400' }}
                         fontWeight={idx === breadcrumb.length - 1 ? '500' : 'normal'}
                       >
@@ -823,7 +817,7 @@ const FoldersModal = ({ isOpen, onClose, onSelectFolder, mode, selectionMode = f
       </Modal>
 
       {/* Context Menu Portal */}
-      {contextMenu.visible && contextMenu.folder && createPortal(
+      {contextMenu.folder && createPortal(
         <Box
           ref={menuRef}
           position="fixed"
@@ -839,6 +833,16 @@ const FoldersModal = ({ isOpen, onClose, onSelectFolder, mode, selectionMode = f
           px={1}
           minW="160px"
           onContextMenu={(e) => e.preventDefault()}
+          style={{
+            opacity: contextMenu.visible ? 1 : 0,
+            transform: contextMenu.visible ? 'scale(1)' : 'scale(0.96)',
+            transition: contextMenu.visible
+              ? 'opacity 0.12s ease, transform 0.12s ease'
+              : 'opacity 0.08s ease, transform 0.08s ease',
+            pointerEvents: contextMenu.visible ? 'auto' : 'none',
+            transformOrigin: 'top left',
+            willChange: 'opacity, transform',
+          }}
         >
           <VStack spacing={0} align="stretch">
             <HStack

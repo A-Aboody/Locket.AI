@@ -224,7 +224,10 @@ const FloatingMenu = ({ onProfile, onSettings, onLogout, onViewDocument }) => {
         isOpen={showFolders}
         onClose={() => setShowFolders(false)}
         onSelectFolder={(folderId, folderName) => {
-          navigate('/all-documents', { state: { selectedFolderId: folderId, selectedFolderName: folderName } });
+          // Dispatch event so the current page can handle it directly if already mounted
+          window.dispatchEvent(new CustomEvent('navigateToFolder', { detail: { folderId, folderName } }));
+          // Navigate to the documents page with the folder pre-selected
+          navigate('/documents', { state: { selectedFolderId: folderId, selectedFolderName: folderName } });
           setShowFolders(false);
         }}
         onViewDocument={onViewDocument}

@@ -1,5 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
-import { createPortal } from 'react-dom';
+import { useState, useRef } from 'react';
 import {
   Box,
   HStack,
@@ -40,7 +39,6 @@ import {
   FiTrash2,
   FiDownload,
   FiUser,
-  FiCalendar,
   FiFileText,
   FiUsers,
   FiEyeOff,
@@ -50,12 +48,15 @@ import {
   FiPackage,
   FiFolder,
   FiChevronRight,
+  FiMoreVertical,
+  FiEdit2,
 } from 'react-icons/fi';
 import { documentsAPI, foldersAPI } from '../utils/api';
 import { formatFileSize, formatDate } from '../utils/formatters';
 import AddDocumentToGroupModal from './user_groups/AddDocumentToGroupModal';
 import ContextMenu from './ContextMenu';
-import { FiEdit2 as FiEdit2Icon } from 'react-icons/fi';
+import FolderContextMenu from './FolderContextMenu';
+import DownloadStatusPanel from './DownloadStatusPanel';
 
 const DocumentList = ({
   documents = [],
@@ -73,16 +74,20 @@ const DocumentList = ({
   inlineFolders = [],
   onFolderNavigate,
   onFolderRefresh,
+  allFolders = [],
+  onMoveFolder,
+  onAddFolderToGroup,
 }) => {
   const [deleteId, setDeleteId] = useState(null);
   const [deleteName, setDeleteName] = useState('');
   const [hoveredRow, setHoveredRow] = useState(null);
   const [hoveredCard, setHoveredCard] = useState(null);
+  const [hoveredFolderCard, setHoveredFolderCard] = useState(null);
   const [addToGroupDocument, setAddToGroupDocument] = useState(null);
   const [contextMenu, setContextMenu] = useState({ visible: false, position: null, document: null });
   const [folderContextMenu, setFolderContextMenu] = useState({ visible: false, position: null, folder: null });
-  const [folderMenuPos, setFolderMenuPos] = useState({ x: 0, y: 0 });
-  const folderMenuRef = useRef(null);
+  const [folderDownloads, setFolderDownloads] = useState([]);
+
   const folderDeleteCancelRef = useRef();
   const { isOpen, onOpen, onClose } = useDisclosure();
 
@@ -112,7 +117,6 @@ const DocumentList = ({
   const handleDeleteConfirm = async () => {
     try {
       await documentsAPI.delete(deleteId);
-      
       toast({
         title: 'Moved to trash',
         description: `${deleteName} has been moved to trash`,
@@ -120,10 +124,7 @@ const DocumentList = ({
         duration: 3000,
         isClosable: true,
       });
-
-      if (onDelete) {
-        onDelete();
-      }
+      if (onDelete) onDelete();
     } catch (error) {
       toast({
         title: 'Delete failed',
@@ -139,15 +140,18 @@ const DocumentList = ({
     }
   };
 
+  const isCreator = (doc) => {
+    return doc.uploaded_by_username === currentUser.username || doc.uploaded_by_id === currentUser.id;
+  };
+
   const canDelete = (doc) => {
-    return currentUser.role === 'admin' || doc.uploaded_by_username === currentUser.username;
+    // Creator has highest permissions - can always delete their own documents
+    return currentUser.role === 'admin' || isCreator(doc);
   };
 
   const canAddToGroup = (doc) => {
-    const isOwner = doc.uploaded_by_username === currentUser.username;
-    const isAdmin = currentUser.role === 'admin';
-    const isPublic = doc.visibility === 'public';
-    return isOwner || (isAdmin && isPublic);
+    // Creator has highest permissions - can always add their own documents to groups
+    return currentUser.role === 'admin' || isCreator(doc);
   };
 
   const handleAddToGroupClick = (doc) => {
@@ -156,15 +160,11 @@ const DocumentList = ({
   };
 
   const handleAddToGroupSuccess = () => {
-    if (onDelete) {
-      onDelete(); // Refresh the document list
-    }
+    if (onDelete) onDelete();
     onAddToGroupClose();
   };
 
-  const getFileExtension = (filename) => {
-    return filename.split('.').pop().toUpperCase();
-  };
+  const getFileExtension = (filename) => filename.split('.').pop().toUpperCase();
 
   const getFileIcon = (filename) => {
     const ext = filename?.split('.').pop().toLowerCase();
@@ -176,31 +176,15 @@ const DocumentList = ({
 
   const getVisibilityDisplay = (doc) => {
     if (doc.visibility === 'group' && doc.user_group_name) {
-      return {
-        icon: FiUsers,
-        text: doc.user_group_name,
-        color: 'accent.400',
-      };
+      return { icon: FiUsers, text: doc.user_group_name, color: 'accent.400' };
     }
     if (doc.visibility === 'organization') {
-      return {
-        icon: FiPackage,
-        text: currentUser.organization_name || 'Organization',
-        color: 'blue.400',
-      };
+      return { icon: FiPackage, text: currentUser.organization_name || 'Organization', color: 'blue.400' };
     }
     if (doc.visibility === 'public') {
-      return {
-        icon: FiGlobe,
-        text: 'Everyone',
-        color: 'green.400',
-      };
+      return { icon: FiGlobe, text: 'Everyone', color: 'green.400' };
     }
-    return {
-      icon: FiEyeOff,
-      text: 'Only me',
-      color: 'gray.500',
-    };
+    return { icon: FiEyeOff, text: 'Only me', color: 'gray.500' };
   };
 
   const handleDownload = async (documentId) => {
@@ -215,13 +199,7 @@ const DocumentList = ({
       link.click();
       link.parentNode.removeChild(link);
       window.URL.revokeObjectURL(url);
-
-      toast({
-        title: 'Download started',
-        status: 'success',
-        duration: 2000,
-        isClosable: true,
-      });
+      toast({ title: 'Download started', status: 'success', duration: 2000, isClosable: true });
     } catch (error) {
       toast({
         title: 'Download failed',
@@ -233,84 +211,53 @@ const DocumentList = ({
     }
   };
 
+  const handleFolderDownload = async (folder) => {
+    const dlId = Date.now();
+    setFolderDownloads(prev => [...prev, { id: dlId, name: folder.name, status: 'preparing' }]);
+    try {
+      setFolderDownloads(prev => prev.map(d => d.id === dlId ? { ...d, status: 'downloading' } : d));
+      const response = await foldersAPI.downloadZip(folder.id);
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/zip' }));
+      const link = window.document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${folder.name}.zip`);
+      window.document.body.appendChild(link);
+      link.click();
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      setFolderDownloads(prev => prev.map(d => d.id === dlId ? { ...d, status: 'done' } : d));
+    } catch {
+      setFolderDownloads(prev => prev.map(d => d.id === dlId ? { ...d, status: 'error' } : d));
+    }
+  };
+
   const handleContextMenu = (e, doc) => {
     e.preventDefault();
     e.stopPropagation();
-    setFolderContextMenu({ visible: false, position: null, folder: null });
-    setContextMenu({ visible: false, position: null, document: null });
-    requestAnimationFrame(() => {
-      setContextMenu({
-        visible: true,
-        position: { x: e.clientX, y: e.clientY },
-        document: doc,
-      });
-    });
+    setFolderContextMenu(prev => ({ ...prev, visible: false }));
+    setContextMenu({ visible: true, position: { x: e.clientX, y: e.clientY }, document: doc });
   };
 
   const closeContextMenu = () => {
     setContextMenu({ visible: false, position: null, document: null });
   };
 
-  // Folder context menu handlers
   const handleFolderContextMenu = (e, folder) => {
     e.preventDefault();
     e.stopPropagation();
-    setContextMenu({ visible: false, position: null, document: null });
-    setFolderContextMenu({ visible: false, position: null, folder: null });
-    requestAnimationFrame(() => {
-      setFolderContextMenu({
-        visible: true,
-        position: { x: e.clientX, y: e.clientY },
-        folder,
-      });
-    });
+    setContextMenu(prev => ({ ...prev, visible: false }));
+    setFolderContextMenu({ visible: true, position: { x: e.clientX, y: e.clientY }, folder });
   };
 
   const closeFolderContextMenu = () => {
-    setFolderContextMenu({ visible: false, position: null, folder: null });
+    setFolderContextMenu(prev => ({ ...prev, visible: false }));
   };
 
-  // Position folder context menu
-  useEffect(() => {
-    if (folderContextMenu.visible && folderContextMenu.position) {
-      const menuWidth = 150;
-      const menuHeight = 140;
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      let x = folderContextMenu.position.x;
-      let y = folderContextMenu.position.y;
-      if (x + menuWidth > vw - 10) x = vw - menuWidth - 10;
-      if (y + menuHeight > vh - 10) y = vh - menuHeight - 10;
-      if (x < 10) x = 10;
-      if (y < 10) y = 10;
-      setFolderMenuPos({ x, y });
-    }
-  }, [folderContextMenu.visible, folderContextMenu.position]);
-
-  // Close folder context menu on outside click/escape/scroll
-  useEffect(() => {
-    if (!folderContextMenu.visible) return;
-    const handleClickOutside = (e) => {
-      if (folderMenuRef.current && !folderMenuRef.current.contains(e.target)) {
-        closeFolderContextMenu();
-      }
-    };
-    const handleEscape = (e) => { if (e.key === 'Escape') closeFolderContextMenu(); };
-    const handleScroll = () => closeFolderContextMenu();
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleEscape);
-    window.addEventListener('scroll', handleScroll, true);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleEscape);
-      window.removeEventListener('scroll', handleScroll, true);
-    };
-  }, [folderContextMenu.visible]);
-
-  const handleFolderRenameClick = () => {
-    if (folderContextMenu.folder) {
-      setRenameFolderData(folderContextMenu.folder);
-      setRenameFolderValue(folderContextMenu.folder.name);
+  const handleFolderRenameClick = (folderArg) => {
+    const f = folderArg || folderContextMenu.folder;
+    if (f) {
+      setRenameFolderData(f);
+      setRenameFolderValue(f.name);
       onFolderRenameOpen();
     }
   };
@@ -319,7 +266,7 @@ const DocumentList = ({
     if (!renameFolderValue.trim() || !renameFolderData) return;
     try {
       await foldersAPI.update(renameFolderData.id, { name: renameFolderValue.trim() });
-      toast({ title: 'Folder renamed', description: 'Folder has been renamed successfully', status: 'success', duration: 3000, isClosable: true });
+      toast({ title: 'Folder renamed', status: 'success', duration: 3000, isClosable: true });
       if (onFolderRefresh) onFolderRefresh();
       else if (onDelete) onDelete();
     } catch (error) {
@@ -331,10 +278,11 @@ const DocumentList = ({
     }
   };
 
-  const handleFolderDeleteClick = () => {
-    if (folderContextMenu.folder) {
-      setDeleteFolderId(folderContextMenu.folder.id);
-      setDeleteFolderName(folderContextMenu.folder.name);
+  const handleFolderDeleteClick = (folderArg) => {
+    const f = folderArg || folderContextMenu.folder;
+    if (f) {
+      setDeleteFolderId(f.id);
+      setDeleteFolderName(f.name);
       onFolderDeleteOpen();
     }
   };
@@ -343,7 +291,7 @@ const DocumentList = ({
     if (!deleteFolderId) return;
     try {
       await foldersAPI.delete(deleteFolderId);
-      toast({ title: 'Folder deleted', description: 'Folder has been deleted successfully', status: 'success', duration: 3000, isClosable: true });
+      toast({ title: 'Folder deleted', status: 'success', duration: 3000, isClosable: true });
       if (onFolderRefresh) onFolderRefresh();
       else if (onDelete) onDelete();
     } catch (error) {
@@ -356,9 +304,7 @@ const DocumentList = ({
   };
 
   const handleRename = (doc) => {
-    if (onRename) {
-      onRename(doc);
-    }
+    if (onRename) onRename(doc);
   };
 
   const handleCopy = async (docId) => {
@@ -367,29 +313,61 @@ const DocumentList = ({
     } else {
       try {
         await documentsAPI.copy(docId);
-        toast({
-          title: 'Copy created',
-          description: 'A copy of the document has been created',
-          status: 'success',
-          duration: 3000,
-          isClosable: true,
-        });
-        if (onDelete) onDelete(); // Refresh list
+        toast({ title: 'Copy created', status: 'success', duration: 3000, isClosable: true });
+        if (onDelete) onDelete();
       } catch (error) {
-        toast({
-          title: 'Copy failed',
-          description: error.response?.data?.detail || 'An error occurred',
-          status: 'error',
-          duration: 5000,
-          isClosable: true,
-        });
+        toast({ title: 'Copy failed', description: error.response?.data?.detail || 'An error occurred', status: 'error', duration: 5000, isClosable: true });
       }
     }
   };
 
   const handleMoveToFolder = (docId, folderId) => {
-    if (onMoveToFolder) {
-      onMoveToFolder(docId, folderId);
+    if (onMoveToFolder) onMoveToFolder(docId, folderId);
+  };
+
+  const handleMoreActionsClick = (e, doc) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    setFolderContextMenu(prev => ({ ...prev, visible: false }));
+    setContextMenu({ visible: true, position: { x: rect.left, y: rect.bottom + 4 }, document: doc });
+  };
+
+  const handleFolderMoreActionsClick = (e, folder) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    setContextMenu(prev => ({ ...prev, visible: false }));
+    setFolderContextMenu({ visible: true, position: { x: rect.left, y: rect.bottom + 4 }, folder });
+  };
+
+  const handleMoveFolderAction = async (folderId, targetParentId) => {
+    if (onMoveFolder) {
+      onMoveFolder(folderId, targetParentId);
+    } else {
+      try {
+        await foldersAPI.move(folderId, targetParentId);
+        toast({ title: 'Folder moved', status: 'success', duration: 3000, isClosable: true });
+        if (onFolderRefresh) onFolderRefresh();
+        else if (onDelete) onDelete();
+      } catch (error) {
+        toast({ title: 'Move failed', description: error.response?.data?.detail || 'An error occurred', status: 'error', duration: 5000, isClosable: true });
+      }
+    }
+  };
+
+  const handleAddFolderToGroupAction = async (folder, groupId) => {
+    if (onAddFolderToGroup) {
+      onAddFolderToGroup(folder, groupId);
+    } else {
+      try {
+        await foldersAPI.update(folder.id, { group_id: groupId });
+        toast({ title: 'Folder added to group', status: 'success', duration: 3000, isClosable: true });
+        if (onFolderRefresh) onFolderRefresh();
+        else if (onDelete) onDelete();
+      } catch (error) {
+        toast({ title: 'Failed to add to group', description: error.response?.data?.detail || 'An error occurred', status: 'error', duration: 5000, isClosable: true });
+      }
     }
   };
 
@@ -408,18 +386,10 @@ const DocumentList = ({
     return (
       <Center py={20}>
         <VStack spacing={4}>
-          <Box 
-            p={6} 
-            bg="primary.800" 
-            rounded="full"
-            border="2px dashed"
-            borderColor="primary.600"
-          >
+          <Box p={6} bg="primary.800" rounded="full" border="2px dashed" borderColor="primary.600">
             <FiFile size={48} color="#3d4148" />
           </Box>
-          <Text fontSize="lg" color="white" fontWeight="medium">
-            {emptyMessage}
-          </Text>
+          <Text fontSize="lg" color="white" fontWeight="medium">{emptyMessage}</Text>
           <Text color="gray.400" fontSize="sm" textAlign="center" maxW="300px">
             Upload your first document to get started
           </Text>
@@ -428,9 +398,18 @@ const DocumentList = ({
     );
   }
 
-  // Inline folder card component
+  const getFolderScopeDisplay = (folder) => {
+    if (folder.scope === 'organization') {
+      if (folder.group_name) return { icon: FiUsers, text: folder.group_name, color: 'purple.400' };
+      return { icon: FiGlobe, text: currentUser.organization_name || 'Organization', color: 'blue.400' };
+    }
+    return { icon: FiEyeOff, text: 'Only me', color: 'gray.500' };
+  };
+
+  // Inline folder card component - Google Drive style (only ⋮ button inline)
   const InlineFolderCard = ({ folder }) => {
     const scopeDisplay = getFolderScopeDisplay(folder);
+    const isHovered = hoveredFolderCard === folder.id;
     return (
       <Box
         p={4}
@@ -441,14 +420,30 @@ const DocumentList = ({
         cursor="pointer"
         onClick={() => onFolderNavigate && onFolderNavigate(folder.id)}
         onContextMenu={(e) => handleFolderContextMenu(e, folder)}
+        onMouseEnter={() => setHoveredFolderCard(folder.id)}
+        onMouseLeave={() => setHoveredFolderCard(null)}
         _hover={{ bg: 'whiteAlpha.50', borderColor: 'whiteAlpha.200' }}
       >
         <HStack spacing={3}>
-          <Icon as={FiFolder} boxSize={5} color="accent.400" />
+          <Icon as={FiFolder} boxSize={5} color="accent.400" flexShrink={0} />
           <VStack align="start" spacing={0} flex={1} minW={0}>
-            <Text color="white" fontWeight="medium" fontSize="sm" noOfLines={1}>
-              {folder.name}
-            </Text>
+            <HStack spacing={1} w="100%">
+              <Text color="white" fontWeight="medium" fontSize="sm" noOfLines={1} flex={1}>
+                {folder.name}
+              </Text>
+              <IconButton
+                icon={<FiMoreVertical />}
+                size="xs"
+                variant="ghost"
+                color="gray.500"
+                onClick={(e) => { e.stopPropagation(); handleFolderMoreActionsClick(e, folder); }}
+                aria-label="More actions"
+                opacity={isHovered ? 1 : 0}
+                transition="opacity 0.15s"
+                _hover={{ color: 'white', bg: 'whiteAlpha.100' }}
+                flexShrink={0}
+              />
+            </HStack>
             <HStack spacing={2}>
               <Text color="gray.500" fontSize="xs">
                 {folder.document_count || 0} file{folder.document_count !== 1 ? 's' : ''}
@@ -460,20 +455,9 @@ const DocumentList = ({
               </HStack>
             </HStack>
           </VStack>
-          <Icon as={FiChevronRight} boxSize={4} color="gray.600" />
         </HStack>
       </Box>
     );
-  };
-
-  const getFolderScopeDisplay = (folder) => {
-    if (folder.scope === 'organization') {
-      if (folder.group_name) {
-        return { icon: FiUsers, text: folder.group_name, color: 'purple.400' };
-      }
-      return { icon: FiGlobe, text: currentUser.organization_name || 'Organization', color: 'blue.400' };
-    }
-    return { icon: FiEyeOff, text: 'Only me', color: 'gray.500' };
   };
 
   // Inline folder row component for list view
@@ -516,12 +500,148 @@ const DocumentList = ({
             {folder.document_count || 0} file{folder.document_count !== 1 ? 's' : ''}
           </Text>
         </Td>
-        <Td py={3} px={3}></Td>
+        <Td py={3} px={3} onClick={(e) => e.stopPropagation()}>
+          <HStack spacing={0} justify="flex-end" align="center">
+            <Tooltip label="More actions">
+              <IconButton
+                icon={<FiMoreVertical />}
+                size="xs"
+                variant="ghost"
+                color="gray.500"
+                onClick={(e) => handleFolderMoreActionsClick(e, folder)}
+                aria-label="More actions"
+                opacity={isHovered ? 1 : 0}
+                transition="opacity 0.15s"
+                _hover={{ bg: 'whiteAlpha.100', color: 'white' }}
+              />
+            </Tooltip>
+          </HStack>
+        </Td>
       </Tr>
     );
   };
 
-  // Card View - Minimalistic Style
+  // Shared dialogs/modals/menus rendered once, used by both views
+  const SharedOverlays = () => (
+    <>
+      {/* Document Context Menu */}
+      <ContextMenu
+        position={contextMenu.position}
+        document={contextMenu.document}
+        isVisible={contextMenu.visible}
+        onClose={closeContextMenu}
+        onView={(docId) => onViewFullScreen ? onViewFullScreen(docId) : onViewDocument(docId)}
+        onDownload={handleDownload}
+        onRename={handleRename}
+        onCopy={handleCopy}
+        onDelete={handleDeleteClick}
+        onAddToGroup={handleAddToGroupClick}
+        onCreateGroup={handleAddToGroupClick}
+        onMoveToFolder={handleMoveToFolder}
+        groups={groups}
+        folders={folders}
+        canDelete={contextMenu.document ? canDelete(contextMenu.document) : false}
+        canAddToGroup={contextMenu.document ? canAddToGroup(contextMenu.document) : false}
+      />
+
+      {/* Folder Context Menu */}
+      <FolderContextMenu
+        position={folderContextMenu.position}
+        folder={folderContextMenu.folder}
+        isVisible={folderContextMenu.visible}
+        onClose={closeFolderContextMenu}
+        onOpen={(folderId) => { onFolderNavigate && onFolderNavigate(folderId); }}
+        onDownload={handleFolderDownload}
+        onRename={(f) => handleFolderRenameClick(f)}
+        onDelete={(f) => handleFolderDeleteClick(f)}
+        onMoveToFolder={handleMoveFolderAction}
+        onAddToGroup={handleAddFolderToGroupAction}
+        folders={allFolders.length > 0 ? allFolders : [...inlineFolders, ...folders]}
+        groups={groups}
+      />
+
+      {/* Document Delete Dialog */}
+      <AlertDialog isOpen={isOpen} onClose={onClose} isCentered>
+        <AlertDialogOverlay bg="blackAlpha.700" backdropFilter="blur(4px)" />
+        <AlertDialogContent bg="primary.800" border="1px" borderColor="red.500" mx={4}>
+          <AlertDialogHeader fontSize="lg" fontWeight="bold" color="white">
+            <HStack spacing={3}>
+              <Box p={2} bg="red.500" rounded="lg"><FiTrash2 size={20} color="white" /></Box>
+              <Text>Delete Document</Text>
+            </HStack>
+          </AlertDialogHeader>
+          <AlertDialogBody color="gray.300">
+            <VStack align="start" spacing={3}>
+              <Text>
+                Are you sure you want to delete <Text as="span" fontWeight="bold" color="white">{deleteName}</Text>?
+              </Text>
+              <Box p={3} bg="red.900" border="1px" borderColor="red.700" rounded="md" w="full">
+                <Text fontSize="sm" color="red.200">This document will be moved to trash. You can restore it later.</Text>
+              </Box>
+            </VStack>
+          </AlertDialogBody>
+          <AlertDialogFooter>
+            <Button onClick={onClose} variant="ghost" color="gray.400" _hover={{ bg: 'primary.700' }}>Cancel</Button>
+            <Button colorScheme="red" onClick={handleDeleteConfirm} ml={3} leftIcon={<FiTrash2 />}>Delete Document</Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AddDocumentToGroupModal
+        isOpen={isAddToGroupOpen}
+        onClose={onAddToGroupClose}
+        document={addToGroupDocument}
+        onSuccess={handleAddToGroupSuccess}
+      />
+
+      {/* Folder Rename Modal */}
+      <Modal isOpen={isFolderRenameOpen} onClose={onFolderRenameClose} isCentered>
+        <ModalOverlay bg="blackAlpha.700" backdropFilter="blur(4px)" />
+        <ModalContent bg="primary.800" border="1px" borderColor="primary.600">
+          <ModalHeader color="white">Rename Folder</ModalHeader>
+          <ModalBody>
+            <Input
+              value={renameFolderValue}
+              onChange={(e) => setRenameFolderValue(e.target.value)}
+              placeholder="Folder name"
+              color="white"
+              _placeholder={{ color: 'gray.500' }}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleFolderRenameConfirm(); }}
+              autoFocus
+            />
+          </ModalBody>
+          <ModalFooter gap={3}>
+            <Button variant="ghost" color="gray.400" onClick={onFolderRenameClose}>Cancel</Button>
+            <Button bg="accent.500" color="white" onClick={handleFolderRenameConfirm} isDisabled={!renameFolderValue.trim()}>Rename</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Folder Delete Alert Dialog */}
+      <AlertDialog isOpen={isFolderDeleteOpen} leastDestructiveRef={folderDeleteCancelRef} onClose={onFolderDeleteClose} isCentered>
+        <AlertDialogOverlay bg="blackAlpha.700" backdropFilter="blur(4px)" />
+        <AlertDialogContent bg="primary.800" border="1px" borderColor="primary.600">
+          <AlertDialogHeader color="white" fontSize="lg" fontWeight="bold">Delete Folder</AlertDialogHeader>
+          <AlertDialogBody color="gray.300">
+            Are you sure you want to delete "{deleteFolderName}"? Documents inside will be moved to the parent folder.
+          </AlertDialogBody>
+          <AlertDialogFooter gap={3}>
+            <Button ref={folderDeleteCancelRef} variant="ghost" color="gray.400" onClick={onFolderDeleteClose}>Cancel</Button>
+            <Button bg="red.600" color="white" onClick={handleFolderDeleteConfirm}>Delete</Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Download Status Panel */}
+      <DownloadStatusPanel
+        downloads={folderDownloads}
+        onDismiss={(id) => setFolderDownloads(prev => prev.filter(d => d.id !== id))}
+        onDismissAll={() => setFolderDownloads([])}
+      />
+    </>
+  );
+
+  // Card View
   if (viewMode === 'card') {
     return (
       <>
@@ -552,21 +672,11 @@ const DocumentList = ({
                 onContextMenu={(e) => handleContextMenu(e, doc)}
                 onMouseEnter={() => setHoveredCard(doc.id)}
                 onMouseLeave={() => setHoveredCard(null)}
-                _hover={{
-                  bg: 'whiteAlpha.50',
-                  borderColor: 'whiteAlpha.200',
-                }}
+                _hover={{ bg: 'whiteAlpha.50', borderColor: 'whiteAlpha.200' }}
               >
                 <VStack align="stretch" spacing={3}>
-                  {/* Filename */}
                   <VStack align="start" spacing={1.5}>
-                    <Text
-                      color="white"
-                      fontWeight="medium"
-                      fontSize="sm"
-                      noOfLines={2}
-                      lineHeight="1.4"
-                    >
+                    <Text color="white" fontWeight="medium" fontSize="sm" noOfLines={2} lineHeight="1.4">
                       {doc.filename}
                     </Text>
                     <Text color="gray.500" fontSize="xs">
@@ -574,7 +684,6 @@ const DocumentList = ({
                     </Text>
                   </VStack>
 
-                  {/* Metadata */}
                   <VStack align="stretch" spacing={1.5} fontSize="xs" color="gray.500">
                     <HStack spacing={1.5}>
                       <Icon as={visibilityDisplay.icon} boxSize={3} color={visibilityDisplay.color} />
@@ -591,61 +700,43 @@ const DocumentList = ({
                   </VStack>
 
                   {/* Actions */}
-                  <HStack
-                    spacing={0}
-                    pt={2}
-                    onClick={(e) => e.stopPropagation()}
-                    opacity={isHovered ? 1 : 0}
-                    transition="opacity 0.15s"
-                  >
-                    <Tooltip label="View">
-                      <IconButton
-                        icon={<FiEye />}
-                        size="xs"
-                        variant="ghost"
-                        color="gray.500"
-                        onClick={() => onViewDocument(doc.id)}
-                        aria-label="View document"
-                        _hover={{ color: 'white', bg: 'whiteAlpha.100' }}
-                      />
-                    </Tooltip>
-                    <Tooltip label="Download">
-                      <IconButton
-                        icon={<FiDownload />}
-                        size="xs"
-                        variant="ghost"
-                        color="gray.500"
-                        onClick={() => handleDownload(doc.id)}
-                        aria-label="Download document"
-                        _hover={{ color: 'white', bg: 'whiteAlpha.100' }}
-                      />
-                    </Tooltip>
-                    {canAddToGroup(doc) && (
-                      <Tooltip label="Add to Group">
-                        <IconButton
-                          icon={<FiUserPlus />}
-                          size="xs"
-                          variant="ghost"
-                          color="gray.500"
-                          onClick={() => handleAddToGroupClick(doc)}
-                          aria-label="Add to group"
-                          _hover={{ color: 'white', bg: 'whiteAlpha.100' }}
-                        />
+                  <HStack spacing={0} pt={2} onClick={(e) => e.stopPropagation()} align="center">
+                    <HStack spacing={0} flex={1} opacity={isHovered ? 1 : 0} transition="opacity 0.15s">
+                      <Tooltip label="View">
+                        <IconButton icon={<FiEye />} size="xs" variant="ghost" color="gray.500"
+                          onClick={() => onViewDocument(doc.id)} aria-label="View document"
+                          _hover={{ color: 'white', bg: 'whiteAlpha.100' }} />
                       </Tooltip>
-                    )}
-                    {canDelete(doc) && (
-                      <Tooltip label="Delete">
-                        <IconButton
-                          icon={<FiTrash2 />}
-                          size="xs"
-                          variant="ghost"
-                          color="gray.500"
-                          onClick={() => handleDeleteClick(doc.id, doc.filename)}
-                          aria-label="Delete document"
-                          _hover={{ color: 'red.400', bg: 'whiteAlpha.100' }}
-                        />
+                      <Tooltip label="Download">
+                        <IconButton icon={<FiDownload />} size="xs" variant="ghost" color="gray.500"
+                          onClick={() => handleDownload(doc.id)} aria-label="Download document"
+                          _hover={{ color: 'white', bg: 'whiteAlpha.100' }} />
                       </Tooltip>
-                    )}
+                      <Tooltip label="Rename">
+                        <IconButton icon={<FiEdit2 />} size="xs" variant="ghost" color="gray.500"
+                          onClick={() => handleRename(doc)} aria-label="Rename document"
+                          _hover={{ color: 'white', bg: 'whiteAlpha.100' }} />
+                      </Tooltip>
+                      {canAddToGroup(doc) && (
+                        <Tooltip label="Add to Group">
+                          <IconButton icon={<FiUserPlus />} size="xs" variant="ghost" color="gray.500"
+                            onClick={() => handleAddToGroupClick(doc)} aria-label="Add to group"
+                            _hover={{ color: 'white', bg: 'whiteAlpha.100' }} />
+                        </Tooltip>
+                      )}
+                      {canDelete(doc) && (
+                        <Tooltip label="Delete">
+                          <IconButton icon={<FiTrash2 />} size="xs" variant="ghost" color="gray.500"
+                            onClick={() => handleDeleteClick(doc.id, doc.filename)} aria-label="Delete document"
+                            _hover={{ color: 'red.400', bg: 'whiteAlpha.100' }} />
+                        </Tooltip>
+                      )}
+                    </HStack>
+                    <Tooltip label="More actions">
+                      <IconButton icon={<FiMoreVertical />} size="xs" variant="ghost" color="gray.500"
+                        onClick={(e) => handleMoreActionsClick(e, doc)} aria-label="More actions"
+                        _hover={{ color: 'white', bg: 'whiteAlpha.100' }} />
+                    </Tooltip>
                   </HStack>
                 </VStack>
               </Box>
@@ -653,202 +744,7 @@ const DocumentList = ({
           })}
         </SimpleGrid>
 
-        {/* Context Menu */}
-        <ContextMenu
-          position={contextMenu.position}
-          document={contextMenu.document}
-          isVisible={contextMenu.visible}
-          onClose={closeContextMenu}
-          onView={(docId) => onViewFullScreen ? onViewFullScreen(docId) : onViewDocument(docId)}
-          onDownload={handleDownload}
-          onRename={handleRename}
-          onCopy={handleCopy}
-          onDelete={handleDeleteClick}
-          onAddToGroup={handleAddToGroupClick}
-          onCreateGroup={handleAddToGroupClick}
-          onMoveToFolder={handleMoveToFolder}
-          groups={groups}
-          folders={folders}
-          canDelete={contextMenu.document ? canDelete(contextMenu.document) : false}
-          canAddToGroup={contextMenu.document ? canAddToGroup(contextMenu.document) : false}
-        />
-
-        {/* Delete Dialog */}
-        <AlertDialog isOpen={isOpen} onClose={onClose} isCentered>
-          <AlertDialogOverlay bg="blackAlpha.700" backdropFilter="blur(4px)" />
-          <AlertDialogContent bg="primary.800" border="1px" borderColor="red.500" mx={4}>
-            <AlertDialogHeader fontSize="lg" fontWeight="bold" color="white">
-              <HStack spacing={3}>
-                <Box p={2} bg="red.500" rounded="lg">
-                  <FiTrash2 size={20} color="white" />
-                </Box>
-                <Text>Delete Document</Text>
-              </HStack>
-            </AlertDialogHeader>
-
-            <AlertDialogBody color="gray.300">
-              <VStack align="start" spacing={3}>
-                <Text>
-                  Are you sure you want to delete <Text as="span" fontWeight="bold" color="white">{deleteName}</Text>?
-                </Text>
-                <Box
-                  p={3}
-                  bg="red.900"
-                  border="1px"
-                  borderColor="red.700"
-                  rounded="md"
-                  w="full"
-                >
-                  <Text fontSize="sm" color="red.200">
-                    This document will be moved to trash. You can restore it later.
-                  </Text>
-                </Box>
-              </VStack>
-            </AlertDialogBody>
-
-            <AlertDialogFooter>
-              <Button
-                onClick={onClose}
-                variant="ghost"
-                color="gray.400"
-                _hover={{ bg: 'primary.700' }}
-              >
-                Cancel
-              </Button>
-              <Button
-                colorScheme="red"
-                onClick={handleDeleteConfirm}
-                ml={3}
-                leftIcon={<FiTrash2 />}
-              >
-                Delete Document
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-
-        <AddDocumentToGroupModal
-          isOpen={isAddToGroupOpen}
-          onClose={onAddToGroupClose}
-          document={addToGroupDocument}
-          onSuccess={handleAddToGroupSuccess}
-        />
-
-        {/* Folder Rename Modal */}
-        <Modal isOpen={isFolderRenameOpen} onClose={onFolderRenameClose} isCentered>
-          <ModalOverlay bg="blackAlpha.700" backdropFilter="blur(4px)" />
-          <ModalContent bg="primary.800" border="1px" borderColor="primary.600">
-            <ModalHeader color="white">Rename Folder</ModalHeader>
-            <ModalBody>
-              <Input
-                value={renameFolderValue}
-                onChange={(e) => setRenameFolderValue(e.target.value)}
-                placeholder="Folder name"
-                color="white"
-                _placeholder={{ color: 'gray.500' }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    handleFolderRenameConfirm();
-                  }
-                }}
-                autoFocus
-              />
-            </ModalBody>
-            <ModalFooter gap={3}>
-              <Button variant="ghost" color="gray.400" onClick={onFolderRenameClose}>
-                Cancel
-              </Button>
-              <Button bg="accent.500" color="white" onClick={handleFolderRenameConfirm} isDisabled={!renameFolderValue.trim()}>
-                Rename
-              </Button>
-            </ModalFooter>
-          </ModalContent>
-        </Modal>
-
-        {/* Folder Delete Alert Dialog */}
-        <AlertDialog isOpen={isFolderDeleteOpen} leastDestructiveRef={folderDeleteCancelRef} onClose={onFolderDeleteClose} isCentered>
-          <AlertDialogOverlay bg="blackAlpha.700" backdropFilter="blur(4px)" />
-          <AlertDialogContent bg="primary.800" border="1px" borderColor="primary.600">
-            <AlertDialogHeader color="white" fontSize="lg" fontWeight="bold">
-              Delete Folder
-            </AlertDialogHeader>
-            <AlertDialogBody color="gray.300">
-              Are you sure you want to delete "{deleteFolderName}"? Documents inside will be moved to the parent folder.
-            </AlertDialogBody>
-            <AlertDialogFooter gap={3}>
-              <Button ref={folderDeleteCancelRef} variant="ghost" color="gray.400" onClick={onFolderDeleteClose}>
-                Cancel
-              </Button>
-              <Button bg="red.600" color="white" onClick={handleFolderDeleteConfirm}>
-                Delete
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-
-        {/* Folder Context Menu */}
-        {folderContextMenu.visible && folderContextMenu.folder && createPortal(
-          <Box
-            ref={folderMenuRef}
-            position="fixed"
-            left={`${folderMenuPos.x}px`}
-            top={`${folderMenuPos.y}px`}
-            bg="primary.700"
-            border="1px"
-            borderColor="primary.600"
-            rounded="md"
-            py={1}
-            px={1}
-            minW="150px"
-            zIndex={10000}
-            boxShadow="0 8px 32px rgba(0, 0, 0, 0.4)"
-            onContextMenu={(e) => e.preventDefault()}
-          >
-            <VStack spacing={0} align="stretch">
-              <Box px={3} py={2} borderBottom="1px" borderColor="primary.600" mb={1}>
-                <Text fontSize="xs" color="gray.500" noOfLines={1}>
-                  {folderContextMenu.folder.name}
-                </Text>
-              </Box>
-              <HStack
-                px={3} py={2} cursor="pointer" rounded="md"
-                _hover={{ bg: 'primary.600' }} spacing={2}
-                onClick={() => {
-                  onFolderNavigate && onFolderNavigate(folderContextMenu.folder.id);
-                  closeFolderContextMenu();
-                }}
-              >
-                <Icon as={FiChevronRight} boxSize={4} color="gray.400" />
-                <Text fontSize="sm" color="gray.200">Open</Text>
-              </HStack>
-              <HStack
-                px={3} py={2} cursor="pointer" rounded="md"
-                _hover={{ bg: 'primary.600' }} spacing={2}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleFolderRenameClick();
-                  closeFolderContextMenu();
-                }}
-              >
-                <Icon as={FiEdit2Icon} boxSize={4} color="gray.400" />
-                <Text fontSize="sm" color="gray.200">Rename</Text>
-              </HStack>
-              <HStack
-                px={3} py={2} cursor="pointer" rounded="md"
-                _hover={{ bg: 'red.900' }} spacing={2}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleFolderDeleteClick();
-                  closeFolderContextMenu();
-                }}
-              >
-                <Icon as={FiTrash2} boxSize={4} color="red.400" />
-                <Text fontSize="sm" color="red.400">Delete</Text>
-              </HStack>
-            </VStack>
-          </Box>,
-          document.body
-        )}
+        {SharedOverlays()}
       </>
     );
   }
@@ -860,67 +756,11 @@ const DocumentList = ({
         <Table variant="unstyled" size="sm">
           <Thead>
             <Tr borderBottom="1px" borderColor="whiteAlpha.200">
-              <Th
-                color="gray.500"
-                fontSize="xs"
-                textTransform="none"
-                fontWeight="normal"
-                py={3}
-                px={3}
-              >
-                Name
-              </Th>
-              <Th
-                color="gray.500"
-                fontSize="xs"
-                textTransform="none"
-                fontWeight="normal"
-                py={3}
-                px={3}
-              >
-                Shared With
-              </Th>
-              <Th
-                color="gray.500"
-                fontSize="xs"
-                textTransform="none"
-                fontWeight="normal"
-                py={3}
-                px={3}
-              >
-                Uploaded By
-              </Th>
-              <Th
-                color="gray.500"
-                fontSize="xs"
-                textTransform="none"
-                fontWeight="normal"
-                py={3}
-                px={3}
-              >
-                Date Modified
-              </Th>
-              <Th
-                color="gray.500"
-                fontSize="xs"
-                textTransform="none"
-                fontWeight="normal"
-                py={3}
-                px={3}
-                isNumeric
-              >
-                Size
-              </Th>
-              <Th
-                color="gray.500"
-                fontSize="xs"
-                textTransform="none"
-                fontWeight="normal"
-                py={3}
-                px={3}
-                w="120px"
-              >
-              </Th>
+              {['Name', 'Shared With', 'Uploaded By', 'Date Modified'].map((h) => (
+                <Th key={h} color="gray.500" fontSize="xs" textTransform="none" fontWeight="normal" py={3} px={3}>{h}</Th>
+              ))}
+              <Th color="gray.500" fontSize="xs" textTransform="none" fontWeight="normal" py={3} px={3} isNumeric>Size</Th>
+              <Th color="gray.500" fontSize="xs" textTransform="none" fontWeight="normal" py={3} px={3} w="160px" />
             </Tr>
           </Thead>
           <Tbody>
@@ -959,18 +799,8 @@ const DocumentList = ({
                 >
                   <Td py={3} px={3}>
                     <HStack spacing={3}>
-                      <Icon
-                        as={fileIconData.icon}
-                        boxSize={4}
-                        color={fileIconData.color}
-                      />
-                      <Text
-                        color="white"
-                        fontSize="sm"
-                        fontWeight="normal"
-                        noOfLines={1}
-                        maxW="400px"
-                      >
+                      <Icon as={fileIconData.icon} boxSize={4} color={fileIconData.color} />
+                      <Text color="white" fontSize="sm" fontWeight="normal" noOfLines={1} maxW="400px">
                         {doc.filename}
                       </Text>
                     </HStack>
@@ -978,85 +808,56 @@ const DocumentList = ({
                   <Td py={3} px={3}>
                     <HStack spacing={2}>
                       <Icon as={visibilityDisplay.icon} boxSize={3} color={visibilityDisplay.color} />
-                      <Text color="gray.500" fontSize="sm" fontWeight="normal">
-                        {visibilityDisplay.text}
-                      </Text>
+                      <Text color="gray.500" fontSize="sm" fontWeight="normal">{visibilityDisplay.text}</Text>
                     </HStack>
                   </Td>
                   <Td py={3} px={3}>
-                    <Text color="gray.500" fontSize="sm" fontWeight="normal">
-                      {doc.uploaded_by_username}
-                    </Text>
+                    <Text color="gray.500" fontSize="sm" fontWeight="normal">{doc.uploaded_by_username}</Text>
                   </Td>
                   <Td py={3} px={3}>
-                    <Text color="gray.500" fontSize="sm" fontWeight="normal">
-                      {formatDate(doc.uploaded_at)}
-                    </Text>
+                    <Text color="gray.500" fontSize="sm" fontWeight="normal">{formatDate(doc.uploaded_at)}</Text>
                   </Td>
                   <Td py={3} px={3} isNumeric>
-                    <Text color="gray.500" fontSize="sm" fontWeight="normal">
-                      {formatFileSize(doc.file_size)}
-                    </Text>
+                    <Text color="gray.500" fontSize="sm" fontWeight="normal">{formatFileSize(doc.file_size)}</Text>
                   </Td>
-                  <Td
-                    py={3}
-                    px={3}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <HStack
-                      spacing={0}
-                      justify="flex-end"
-                      opacity={isHovered ? 1 : 0}
-                      transition="opacity 0.15s"
-                    >
-                      <Tooltip label="View">
-                        <IconButton
-                          icon={<FiEye />}
-                          size="xs"
-                          variant="ghost"
-                          color="gray.500"
-                          onClick={() => onViewDocument(doc.id)}
-                          aria-label="View document"
-                          _hover={{ bg: 'whiteAlpha.100', color: 'white' }}
-                        />
-                      </Tooltip>
-                      <Tooltip label="Download">
-                        <IconButton
-                          icon={<FiDownload />}
-                          size="xs"
-                          variant="ghost"
-                          color="gray.500"
-                          onClick={() => handleDownload(doc.id)}
-                          aria-label="Download"
-                          _hover={{ bg: 'whiteAlpha.100', color: 'white' }}
-                        />
-                      </Tooltip>
-                      {canAddToGroup(doc) && (
-                        <Tooltip label="Add to Group">
-                          <IconButton
-                            icon={<FiUserPlus />}
-                            size="xs"
-                            variant="ghost"
-                            color="gray.500"
-                            onClick={() => handleAddToGroupClick(doc)}
-                            aria-label="Add to group"
-                            _hover={{ bg: 'whiteAlpha.100', color: 'white' }}
-                          />
+                  <Td py={3} px={3} onClick={(e) => e.stopPropagation()}>
+                    <HStack spacing={0} justify="flex-end" align="center">
+                      <HStack spacing={0} opacity={isHovered ? 1 : 0} transition="opacity 0.15s">
+                        <Tooltip label="View">
+                          <IconButton icon={<FiEye />} size="xs" variant="ghost" color="gray.500"
+                            onClick={() => onViewDocument(doc.id)} aria-label="View document"
+                            _hover={{ bg: 'whiteAlpha.100', color: 'white' }} />
                         </Tooltip>
-                      )}
-                      {canDelete(doc) && (
-                        <Tooltip label="Delete">
-                          <IconButton
-                            icon={<FiTrash2 />}
-                            size="xs"
-                            variant="ghost"
-                            color="gray.500"
-                            onClick={() => handleDeleteClick(doc.id, doc.filename)}
-                            aria-label="Delete document"
-                            _hover={{ bg: 'whiteAlpha.100', color: 'red.400' }}
-                          />
+                        <Tooltip label="Download">
+                          <IconButton icon={<FiDownload />} size="xs" variant="ghost" color="gray.500"
+                            onClick={() => handleDownload(doc.id)} aria-label="Download"
+                            _hover={{ bg: 'whiteAlpha.100', color: 'white' }} />
                         </Tooltip>
-                      )}
+                        <Tooltip label="Rename">
+                          <IconButton icon={<FiEdit2 />} size="xs" variant="ghost" color="gray.500"
+                            onClick={() => handleRename(doc)} aria-label="Rename document"
+                            _hover={{ bg: 'whiteAlpha.100', color: 'white' }} />
+                        </Tooltip>
+                        {canAddToGroup(doc) && (
+                          <Tooltip label="Add to Group">
+                            <IconButton icon={<FiUserPlus />} size="xs" variant="ghost" color="gray.500"
+                              onClick={() => handleAddToGroupClick(doc)} aria-label="Add to group"
+                              _hover={{ bg: 'whiteAlpha.100', color: 'white' }} />
+                          </Tooltip>
+                        )}
+                        {canDelete(doc) && (
+                          <Tooltip label="Delete">
+                            <IconButton icon={<FiTrash2 />} size="xs" variant="ghost" color="gray.500"
+                              onClick={() => handleDeleteClick(doc.id, doc.filename)} aria-label="Delete document"
+                              _hover={{ bg: 'whiteAlpha.100', color: 'red.400' }} />
+                          </Tooltip>
+                        )}
+                      </HStack>
+                      <Tooltip label="More actions">
+                        <IconButton icon={<FiMoreVertical />} size="xs" variant="ghost" color="gray.500"
+                          onClick={(e) => handleMoreActionsClick(e, doc)} aria-label="More actions"
+                          _hover={{ bg: 'whiteAlpha.100', color: 'white' }} />
+                      </Tooltip>
                     </HStack>
                   </Td>
                 </Tr>
@@ -1066,203 +867,7 @@ const DocumentList = ({
         </Table>
       </Box>
 
-      {/* Context Menu */}
-      <ContextMenu
-        position={contextMenu.position}
-        document={contextMenu.document}
-        isVisible={contextMenu.visible}
-        onClose={closeContextMenu}
-        onView={(docId) => onViewFullScreen ? onViewFullScreen(docId) : onViewDocument(docId)}
-        onDownload={handleDownload}
-        onRename={handleRename}
-        onCopy={handleCopy}
-        onDelete={handleDeleteClick}
-        onAddToGroup={handleAddToGroupClick}
-        onCreateGroup={handleAddToGroupClick}
-        onMoveToFolder={handleMoveToFolder}
-        groups={groups}
-        folders={folders}
-        canDelete={contextMenu.document ? canDelete(contextMenu.document) : false}
-        canAddToGroup={contextMenu.document ? canAddToGroup(contextMenu.document) : false}
-      />
-
-      {/* Delete Dialog */}
-      <AlertDialog isOpen={isOpen} onClose={onClose} isCentered>
-        <AlertDialogOverlay bg="blackAlpha.700" backdropFilter="blur(4px)" />
-        <AlertDialogContent bg="primary.800" border="1px" borderColor="red.500" mx={4}>
-          <AlertDialogHeader fontSize="lg" fontWeight="bold" color="white">
-            <HStack spacing={3}>
-              <Box p={2} bg="red.500" rounded="lg">
-                <FiTrash2 size={20} color="white" />
-              </Box>
-              <Text>Delete Document</Text>
-            </HStack>
-          </AlertDialogHeader>
-
-          <AlertDialogBody color="gray.300">
-            <VStack align="start" spacing={3}>
-              <Text>
-                Are you sure you want to delete <Text as="span" fontWeight="bold" color="white">{deleteName}</Text>?
-              </Text>
-              <Box
-                p={3}
-                bg="red.900"
-                border="1px"
-                borderColor="red.700"
-                rounded="md"
-                w="full"
-              >
-                <Text fontSize="sm" color="red.200">
-                  This document will be moved to trash. You can restore it later.
-                </Text>
-              </Box>
-            </VStack>
-          </AlertDialogBody>
-
-          <AlertDialogFooter>
-            <Button
-              onClick={onClose}
-              variant="ghost"
-              color="gray.400"
-              _hover={{ bg: 'primary.700' }}
-            >
-              Cancel
-            </Button>
-            <Button
-              colorScheme="red"
-              onClick={handleDeleteConfirm}
-              ml={3}
-              leftIcon={<FiTrash2 />}
-            >
-              Delete Document
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Add to Group Modal */}
-      <AddDocumentToGroupModal
-        isOpen={isAddToGroupOpen}
-        onClose={onAddToGroupClose}
-        document={addToGroupDocument}
-        onSuccess={handleAddToGroupSuccess}
-      />
-
-      {/* Folder Rename Modal */}
-      <Modal isOpen={isFolderRenameOpen} onClose={onFolderRenameClose} isCentered>
-        <ModalOverlay bg="blackAlpha.700" backdropFilter="blur(4px)" />
-        <ModalContent bg="primary.800" border="1px" borderColor="primary.600">
-          <ModalHeader color="white">Rename Folder</ModalHeader>
-          <ModalBody>
-            <Input
-              value={renameFolderValue}
-              onChange={(e) => setRenameFolderValue(e.target.value)}
-              placeholder="Folder name"
-              color="white"
-              _placeholder={{ color: 'gray.500' }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  handleFolderRenameConfirm();
-                }
-              }}
-              autoFocus
-            />
-          </ModalBody>
-          <ModalFooter gap={3}>
-            <Button variant="ghost" color="gray.400" onClick={onFolderRenameClose}>
-              Cancel
-            </Button>
-            <Button bg="accent.500" color="white" onClick={handleFolderRenameConfirm} isDisabled={!renameFolderValue.trim()}>
-              Rename
-            </Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
-
-      {/* Folder Delete Alert Dialog */}
-      <AlertDialog isOpen={isFolderDeleteOpen} leastDestructiveRef={folderDeleteCancelRef} onClose={onFolderDeleteClose} isCentered>
-        <AlertDialogOverlay bg="blackAlpha.700" backdropFilter="blur(4px)" />
-        <AlertDialogContent bg="primary.800" border="1px" borderColor="primary.600">
-          <AlertDialogHeader color="white" fontSize="lg" fontWeight="bold">
-            Delete Folder
-          </AlertDialogHeader>
-          <AlertDialogBody color="gray.300">
-            Are you sure you want to delete "{deleteFolderName}"? Documents inside will be moved to the parent folder.
-          </AlertDialogBody>
-          <AlertDialogFooter gap={3}>
-            <Button ref={folderDeleteCancelRef} variant="ghost" color="gray.400" onClick={onFolderDeleteClose}>
-              Cancel
-            </Button>
-            <Button bg="red.600" color="white" onClick={handleFolderDeleteConfirm}>
-              Delete
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Folder Context Menu */}
-      {folderContextMenu.visible && folderContextMenu.folder && createPortal(
-        <Box
-          ref={folderMenuRef}
-          position="fixed"
-          left={`${folderMenuPos.x}px`}
-          top={`${folderMenuPos.y}px`}
-          bg="primary.700"
-          border="1px"
-          borderColor="primary.600"
-          rounded="md"
-          py={1}
-          px={1}
-          minW="150px"
-          zIndex={10000}
-          boxShadow="0 8px 32px rgba(0, 0, 0, 0.4)"
-          onContextMenu={(e) => e.preventDefault()}
-        >
-          <VStack spacing={0} align="stretch">
-            <Box px={3} py={2} borderBottom="1px" borderColor="primary.600" mb={1}>
-              <Text fontSize="xs" color="gray.500" noOfLines={1}>
-                {folderContextMenu.folder.name}
-              </Text>
-            </Box>
-            <HStack
-              px={3} py={2} cursor="pointer" rounded="md"
-              _hover={{ bg: 'primary.600' }} spacing={2}
-              onClick={() => {
-                onFolderNavigate && onFolderNavigate(folderContextMenu.folder.id);
-                closeFolderContextMenu();
-              }}
-            >
-              <Icon as={FiChevronRight} boxSize={4} color="gray.400" />
-              <Text fontSize="sm" color="gray.200">Open</Text>
-            </HStack>
-            <HStack
-              px={3} py={2} cursor="pointer" rounded="md"
-              _hover={{ bg: 'primary.600' }} spacing={2}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleFolderRenameClick();
-                closeFolderContextMenu();
-              }}
-            >
-              <Icon as={FiEdit2Icon} boxSize={4} color="gray.400" />
-              <Text fontSize="sm" color="gray.200">Rename</Text>
-            </HStack>
-            <HStack
-              px={3} py={2} cursor="pointer" rounded="md"
-              _hover={{ bg: 'red.900' }} spacing={2}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleFolderDeleteClick();
-                closeFolderContextMenu();
-              }}
-            >
-              <Icon as={FiTrash2} boxSize={4} color="red.400" />
-              <Text fontSize="sm" color="red.400">Delete</Text>
-            </HStack>
-          </VStack>
-        </Box>,
-        document.body
-      )}
+      {SharedOverlays()}
     </>
   );
 };

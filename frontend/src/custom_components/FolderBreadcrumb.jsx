@@ -8,7 +8,15 @@ import {
 } from '@chakra-ui/react';
 import { FiHome, FiChevronRight } from 'react-icons/fi';
 
-const FolderBreadcrumb = ({ breadcrumb = [], onNavigate, rootLabel = 'Documents' }) => {
+const FolderBreadcrumb = ({ breadcrumb = [], onNavigate, rootLabel = 'Documents', onFolderContextMenu }) => {
+  const handleContextMenu = (e, folder) => {
+    if (onFolderContextMenu && folder) {
+      e.preventDefault();
+      e.stopPropagation();
+      onFolderContextMenu(e, folder);
+    }
+  };
+
   return (
     <Breadcrumb
       separator={<Icon as={FiChevronRight} color="gray.600" boxSize={3} />}
@@ -36,6 +44,7 @@ const FolderBreadcrumb = ({ breadcrumb = [], onNavigate, rootLabel = 'Documents'
           <BreadcrumbItem key={folder.id} isCurrentPage={isLast}>
             <BreadcrumbLink
               onClick={() => !isLast && onNavigate(folder.id)}
+              onContextMenu={(e) => handleContextMenu(e, folder)}
               color={isLast ? 'white' : 'gray.500'}
               fontWeight={isLast ? 'medium' : 'normal'}
               fontSize="sm"
