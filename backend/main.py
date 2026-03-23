@@ -17,6 +17,8 @@ import traceback
 import logging
 import io
 import zipfile
+import re
+from statistics import mean
 
 from config import config
 from db_config import get_db
@@ -33,6 +35,32 @@ from dependencies import (
 from database_models import User, UserRole, UserStatus, Document, Chat, ChatMessage, ChatCitation, Organization, OrganizationMember, OrgRole, DocumentActivity, Folder
 from email_service import email_service
 from verification_service import verification_service
+
+
+def _clamp_score(value: float) -> float:
+    """Clamp metric values to [0.0, 1.0] and round for stable UI display."""
+    return round(max(0.0, min(1.0, value)), 4)
+
+
+def _dedupe_repeated_words(text: Optional[str]) -> str:
+    """Light cleanup for occasional model glitches with immediate repeated tokens."""
+    if not text:
+        return ""
+
+    tokens = text.split()
+    if not tokens:
+        return text
+
+    cleaned = [tokens[0]]
+    prev_norm = re.sub(r'[^\w]', '', tokens[0]).lower()
+    for token in tokens[1:]:
+        norm = re.sub(r'[^\w]', '', token).lower()
+        if norm and norm == prev_norm:
+            continue
+        cleaned.append(token)
+        prev_norm = norm
+
+    return ' '.join(cleaned)
 
 # Configure logging with UTF-8 encoding for Windows
 logging.basicConfig(
@@ -3616,6 +3644,338 @@ def list_chats(
         )
 
 
+@app.get("/api/chats/metrics/ragas", response_model=schemas.ChatRagasMetricsResponse)
+def get_chat_ragas_metrics(
+    period_days: int = 14,
+    current_user: User = Depends(require_verified_email),
+    db: Session = Depends(get_db)
+):
+    """
+    Return RAGAS-style chat quality metrics for the authenticated user.
+
+    Notes:
+    - This is a lightweight, production-friendly approximation of RAGAS dimensions
+      built from existing chat/citation signals.
+    - period_days is limited to 3..90 days.
+    """
+    try:
+        period_days = max(3, min(90, int(period_days)))
+        now_utc = datetime.now(timezone.utc)
+        cutoff = now_utc - timedelta(days=period_days)
+
+        chat_ids = [
+            chat_id
+            for (chat_id,) in db.query(Chat.id).filter(Chat.user_id == current_user.id).all()
+        ]
+
+        assistant_messages = db.query(ChatMessage).join(
+            Chat, Chat.id == ChatMessage.chat_id
+        ).filter(
+            Chat.user_id == current_user.id,
+            ChatMessage.role == "assistant",
+            ChatMessage.created_at >= cutoff
+        ).all()
+
+        user_messages = db.query(ChatMessage).join(
+            Chat, Chat.id == ChatMessage.chat_id
+        ).filter(
+            Chat.user_id == current_user.id,
+            ChatMessage.role == "user",
+            ChatMessage.created_at >= cutoff
+        ).all()
+
+        citations = db.query(ChatCitation).join(
+            ChatMessage, ChatMessage.id == ChatCitation.message_id
+        ).join(
+            Chat, Chat.id == ChatCitation.chat_id
+        ).filter(
+            Chat.user_id == current_user.id,
+            ChatMessage.created_at >= cutoff
+        ).all()
+
+        uploaded_docs_count = db.query(Document).filter(
+            Document.uploaded_by_id == current_user.id,
+            Document.is_trashed == False
+        ).count()
+
+        total_assistant = len(assistant_messages)
+        total_user = len(user_messages)
+        total_citations = len(citations)
+
+        citations_by_message = {}
+        for citation in citations:
+            citations_by_message.setdefault(citation.message_id, []).append(citation)
+
+        assistant_ids = [msg.id for msg in assistant_messages]
+        cited_assistant_count = sum(1 for msg_id in assistant_ids if msg_id in citations_by_message)
+
+        relevance_values = [
+            (citation.relevance_score / 100.0)
+            for citation in citations
+            if citation.relevance_score is not None
+        ]
+
+        excerpt_quality = [
+            1.0 if citation.excerpt and len(citation.excerpt.strip()) >= 20 else 0.0
+            for citation in citations
+        ]
+
+        balanced_response = []
+        for msg in assistant_messages:
+            content_len = len(msg.content or "")
+            if 120 <= content_len <= 800:
+                balanced_response.append(1.0)
+            elif 60 <= content_len <= 1500:
+                balanced_response.append(0.75)
+            else:
+                balanced_response.append(0.35)
+
+        context_precision = _clamp_score(
+            (cited_assistant_count / total_assistant) if total_assistant else 0.0
+        )
+        faithfulness = _clamp_score(mean(relevance_values) if relevance_values else 0.0)
+        # Default-neutral baseline for sparse accounts so new users don't see misleadingly tiny scores.
+        faithfulness_for_accuracy = faithfulness if relevance_values else 0.65
+        context_precision_for_accuracy = context_precision if total_assistant else 0.65
+        answer_relevancy = _clamp_score(
+            (
+                0.45 * (min(total_assistant / total_user, 1.0) if total_user else 0.0) +
+                0.30 * (mean(balanced_response) if balanced_response else 0.0) +
+                0.25 * context_precision
+            )
+        )
+
+        unique_cited_docs = len({citation.document_id for citation in citations})
+        context_recall = _clamp_score(
+            (unique_cited_docs / uploaded_docs_count)
+            if uploaded_docs_count > 0 else 0.0
+        )
+        context_recall_for_accuracy = context_recall if uploaded_docs_count > 0 else 0.65
+
+        sanity_score = _clamp_score(
+            0.55 * (mean(excerpt_quality) if excerpt_quality else 0.65) +
+            0.45 * (mean(balanced_response) if balanced_response else 0.65)
+        )
+
+        accuracy_score = _clamp_score(
+            0.35 * faithfulness_for_accuracy +
+            0.30 * context_precision_for_accuracy +
+            0.20 * answer_relevancy +
+            0.15 * context_recall_for_accuracy
+        )
+
+        message_day_lookup = {}
+        for msg in assistant_messages:
+            msg_date = msg.created_at.date().isoformat() if msg.created_at else now_utc.date().isoformat()
+            message_day_lookup[msg.id] = msg_date
+
+        assistant_by_day = {}
+        for msg in assistant_messages:
+            day = message_day_lookup.get(msg.id)
+            assistant_by_day.setdefault(day, []).append(msg)
+
+        citations_by_day = {}
+        for citation in citations:
+            day = message_day_lookup.get(citation.message_id)
+            if day:
+                citations_by_day.setdefault(day, []).append(citation)
+
+        trends = []
+        for i in range(period_days - 1, -1, -1):
+            day_obj = (now_utc - timedelta(days=i)).date()
+            day = day_obj.isoformat()
+            day_assistant = assistant_by_day.get(day, [])
+            day_citations = citations_by_day.get(day, [])
+
+            day_total_assistant = len(day_assistant)
+            day_cited_assistant = sum(
+                1 for msg in day_assistant if msg.id in citations_by_message
+            )
+
+            day_relevance = [
+                (c.relevance_score / 100.0)
+                for c in day_citations
+                if c.relevance_score is not None
+            ]
+            day_excerpt_quality = [
+                1.0 if c.excerpt and len(c.excerpt.strip()) >= 20 else 0.0
+                for c in day_citations
+            ]
+
+            day_balanced = []
+            for msg in day_assistant:
+                size = len(msg.content or "")
+                if 120 <= size <= 800:
+                    day_balanced.append(1.0)
+                elif 60 <= size <= 1500:
+                    day_balanced.append(0.75)
+                else:
+                    day_balanced.append(0.35)
+
+            day_precision = _clamp_score(
+                (day_cited_assistant / day_total_assistant) if day_total_assistant else 0.0
+            )
+            day_faithfulness = _clamp_score(mean(day_relevance) if day_relevance else 0.0)
+            day_sanity = _clamp_score(
+                0.55 * (mean(day_excerpt_quality) if day_excerpt_quality else 0.0) +
+                0.45 * (mean(day_balanced) if day_balanced else 0.0)
+            )
+
+            day_answer_rel = _clamp_score(
+                0.65 * day_precision +
+                0.35 * (mean(day_balanced) if day_balanced else 0.0)
+            )
+
+            day_unique_docs = len({c.document_id for c in day_citations})
+            day_recall = _clamp_score(
+                (day_unique_docs / uploaded_docs_count) if uploaded_docs_count > 0 else 0.0
+            )
+
+            day_accuracy = _clamp_score(
+                0.35 * day_faithfulness +
+                0.30 * day_precision +
+                0.20 * day_answer_rel +
+                0.15 * day_recall
+            )
+
+            trends.append({
+                "date": day,
+                "accuracy": day_accuracy,
+                "sanity": day_sanity,
+                "context_precision": day_precision,
+                "faithfulness": day_faithfulness,
+            })
+
+        # Parameter breakdowns (message-level quality by bucket)
+        message_quality = {}
+        for msg in assistant_messages:
+            msg_citations = citations_by_message.get(msg.id, [])
+            msg_relevance = [
+                (c.relevance_score / 100.0)
+                for c in msg_citations
+                if c.relevance_score is not None
+            ]
+            msg_len = len(msg.content or "")
+            if 120 <= msg_len <= 800:
+                len_score = 1.0
+            elif 60 <= msg_len <= 1500:
+                len_score = 0.75
+            else:
+                len_score = 0.35
+
+            message_quality[msg.id] = _clamp_score(
+                0.45 * (1.0 if msg_citations else 0.0) +
+                0.35 * (mean(msg_relevance) if msg_relevance else 0.0) +
+                0.20 * len_score
+            )
+
+        parameter_breakdown = []
+
+        citation_buckets = {
+            "0 citations": [],
+            "1-2 citations": [],
+            "3+ citations": [],
+        }
+        for msg in assistant_messages:
+            count = len(citations_by_message.get(msg.id, []))
+            if count == 0:
+                citation_buckets["0 citations"].append(message_quality[msg.id])
+            elif count <= 2:
+                citation_buckets["1-2 citations"].append(message_quality[msg.id])
+            else:
+                citation_buckets["3+ citations"].append(message_quality[msg.id])
+
+        for bucket, values in citation_buckets.items():
+            parameter_breakdown.append({
+                "parameter": "citation_density",
+                "bucket": bucket,
+                "score": _clamp_score(mean(values) if values else 0.0),
+                "sample_size": len(values)
+            })
+
+        length_buckets = {
+            "Short (<120)": [],
+            "Balanced (120-800)": [],
+            "Long (>800)": [],
+        }
+        for msg in assistant_messages:
+            text_len = len(msg.content or "")
+            if text_len < 120:
+                length_buckets["Short (<120)"].append(message_quality[msg.id])
+            elif text_len <= 800:
+                length_buckets["Balanced (120-800)"].append(message_quality[msg.id])
+            else:
+                length_buckets["Long (>800)"].append(message_quality[msg.id])
+
+        for bucket, values in length_buckets.items():
+            parameter_breakdown.append({
+                "parameter": "answer_length",
+                "bucket": bucket,
+                "score": _clamp_score(mean(values) if values else 0.0),
+                "sample_size": len(values)
+            })
+
+        metrics = [
+            {
+                "key": "faithfulness",
+                "label": "Faithfulness",
+                "value": faithfulness,
+                "description": "How grounded responses are in cited source snippets."
+            },
+            {
+                "key": "answer_relevancy",
+                "label": "Answer Relevancy",
+                "value": answer_relevancy,
+                "description": "How often responses align with user prompts and expected depth."
+            },
+            {
+                "key": "context_precision",
+                "label": "Context Precision",
+                "value": context_precision,
+                "description": "Share of answers that include retrieval-backed citations."
+            },
+            {
+                "key": "context_recall",
+                "label": "Context Recall",
+                "value": context_recall,
+                "description": "Coverage of your uploaded document space in generated answers."
+            },
+            {
+                "key": "sanity_check",
+                "label": "Sanity Check",
+                "value": sanity_score,
+                "description": "Heuristic check for coherent answer length and usable citations."
+            },
+        ]
+
+        return {
+            "generated_at": now_utc,
+            "period_days": period_days,
+            "summary": {
+                "total_chats": len(chat_ids),
+                "total_questions": total_user,
+                "total_answers": total_assistant,
+                "cited_answers": cited_assistant_count,
+                "cited_documents": unique_cited_docs,
+            },
+            "headline": {
+                "accuracy": accuracy_score,
+                "sanity": sanity_score,
+                "coverage": context_recall,
+            },
+            "metrics": metrics,
+            "trends": trends,
+            "parameter_breakdown": parameter_breakdown,
+        }
+    except Exception as e:
+        logger.error(f"Error generating chat RAGAS metrics: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate chat metrics: {str(e)}"
+        )
+
+
 @app.get("/api/chats/{chat_id}", response_model=schemas.ChatResponse)
 def get_chat(
     chat_id: int,
@@ -3747,21 +4107,63 @@ def send_message(
             for msg in previous_messages
         ]
 
+        # For follow-up prompts, softly rewrite query to include immediate context.
+        context_enhanced_query = message_data.content
+        if chat_service.is_follow_up_query(message_data.content) and conversation_history:
+            recent_user_msgs = [m["content"] for m in conversation_history[-6:] if m["role"] == "user"]
+            recent_assistant_msgs = [m["content"] for m in conversation_history[-6:] if m["role"] == "assistant"]
+
+            recent_user = recent_user_msgs[-1] if recent_user_msgs else ""
+            recent_assistant = recent_assistant_msgs[-1] if recent_assistant_msgs else ""
+
+            assistant_summary = (recent_assistant[:220] + "...") if len(recent_assistant) > 220 else recent_assistant
+            context_enhanced_query = (
+                f"Follow-up context:\n"
+                f"Previous user ask: {recent_user}\n"
+                f"Previous assistant answer: {assistant_summary}\n"
+                f"Current follow-up: {message_data.content}"
+            )
+
         # Always try to get relevant documents
-        relevant_docs = chat_service.get_relevant_documents(
+        raw_relevant_docs = chat_service.get_relevant_documents(
             db=db,
             user_id=current_user.id,
-            query=message_data.content,
+            query=context_enhanced_query,
             conversation_history=conversation_history,
             limit=5
         )
+
+        # Keep only per-question relevant documents for cleaner citations.
+        # If strict filtering eliminates everything, keep top candidates as fallback
+        # so direct fact lookups (e.g. credentials in short files) still resolve.
+        relevant_docs = [
+            (
+                doc,
+                chat_service.boost_relevance_for_direct_match(message_data.content, doc.filename, excerpt, score),
+                excerpt,
+            )
+            for doc, score, excerpt in raw_relevant_docs
+            if chat_service.is_doc_relevant_to_query(message_data.content, excerpt, score)
+        ]
+        if not relevant_docs and raw_relevant_docs:
+            relevant_docs = [
+                (
+                    doc,
+                    chat_service.boost_relevance_for_direct_match(message_data.content, doc.filename, excerpt, score),
+                    excerpt,
+                )
+                for doc, score, excerpt in raw_relevant_docs[:2]
+            ]
+
+        # Keep highest-confidence documents first for both model context and citation display.
+        relevant_docs.sort(key=lambda item: item[1], reverse=True)
 
         # Import ai_service for AI-powered responses
         try:
             import ai_service
             # Try to use AI service (Ollama) for intelligent responses
             ai_response_content = ai_service.generate_chat_response(
-                query=message_data.content,
+                query=context_enhanced_query,
                 relevant_docs=relevant_docs,
                 conversation_history=conversation_history
             )
@@ -3769,7 +4171,7 @@ def send_message(
             # If AI service returns None (Ollama not available), fall back to chat_service
             if ai_response_content is None:
                 ai_response_content = chat_service.generate_chat_response(
-                    query=message_data.content,
+                    query=context_enhanced_query,
                     relevant_docs=relevant_docs,
                     conversation_history=conversation_history
                 )
@@ -3777,9 +4179,37 @@ def send_message(
             logger.warning(f"AI service failed, using fallback: {str(e)}")
             # Fallback to chat_service if ai_service fails
             ai_response_content = chat_service.generate_chat_response(
-                query=message_data.content,
+                query=context_enhanced_query,
                 relevant_docs=relevant_docs,
                 conversation_history=conversation_history
+            )
+
+        if not ai_response_content or not ai_response_content.strip():
+            ai_response_content = chat_service.generate_no_documents_response(message_data.content)
+
+        ai_response_content = _dedupe_repeated_words(ai_response_content)
+
+        # Remove model-generated note lines and let backend control disclosure behavior.
+        if ai_response_content:
+            ai_response_content = re.sub(
+                r"\n?\s*⚠️\s*Note:\s*This information was (not )?found in your uploaded documents\.?\s*",
+                "\n",
+                ai_response_content,
+                flags=re.IGNORECASE,
+            ).strip()
+
+        # Final safety net: never allow an empty assistant response.
+        if not ai_response_content or not ai_response_content.strip():
+            logger.warning(f"Empty AI response detected for chat {chat_id}; using fallback response")
+            ai_response_content = chat_service.generate_no_documents_response(message_data.content)
+
+        # If answer was generated without relevant docs, enforce disclosure note
+        if (not relevant_docs) and ai_response_content and (
+            "not found in your uploaded documents" not in ai_response_content.lower()
+        ):
+            ai_response_content = (
+                f"{ai_response_content}\n\n"
+                "⚠️ Note: This information was not found in your uploaded documents."
             )
 
         # Save AI response
@@ -3796,12 +4226,18 @@ def send_message(
         # Create citations for documents that were used
         citations = []
 
-        # Check if AI explicitly said information is not in uploaded documents
-        info_not_in_docs = "not found in your uploaded documents" in ai_response_content.lower()
+        # Treat as "not in docs" only when retrieval found no relevant docs.
+        info_not_in_docs = len(relevant_docs) == 0
 
-        if not info_not_in_docs and relevant_docs:
-            # Use all documents with >20% relevance
+        attach_citations = chat_service.should_attach_citations(message_data.content, relevant_docs)
+
+        if not info_not_in_docs and relevant_docs and attach_citations:
+            # Use all documents with >20% relevance (more permissive for short factual queries)
             usable_docs = [doc_tuple for doc_tuple in relevant_docs if doc_tuple[1] > 0.2]
+
+            # If still empty but retrieval found docs, keep top one as citation fallback
+            if not usable_docs and relevant_docs:
+                usable_docs = relevant_docs[:1]
 
             # If we have usable docs and AI didn't say "not found", create citations
             if usable_docs:
@@ -3834,7 +4270,7 @@ def send_message(
                     "created_at": citation.created_at.isoformat() if citation.created_at else None
                 })
 
-        logger.info(f"Message sent in chat {chat_id}: {len(relevant_docs)} documents cited")
+        logger.info(f"Message sent in chat {chat_id}: {len(relevant_docs)} documents considered, {len(citations)} cited")
 
         # Ensure content is properly encoded for Windows
         content_safe = ai_message.content

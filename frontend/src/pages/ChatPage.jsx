@@ -48,16 +48,22 @@ import {
   FiChevronLeft,
   FiChevronRight,
   FiBookOpen,
+  FiActivity,
 } from 'react-icons/fi';
 import AppHeader from '../custom_components/AppHeader';
 import NavTabs from '../custom_components/NavTabs';
 import { chatsAPI, apiUtils } from '../utils/api';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
 
 const ChatPage = () => {
   const { chatId } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
   const messagesEndRef = useRef(null);
+  const streamIntervalRef = useRef(null);
 
   const [user, setUser] = useState(null);
   const [chats, setChats] = useState([]);
@@ -163,30 +169,38 @@ const ChatPage = () => {
     }
   };
 
-  // Typing effect function - word-by-word for proper formatting
+  // Simple streaming indicator: keep UI responsive and render final message at once.
   const typeMessage = useCallback((fullMessage, callback) => {
+    if (streamIntervalRef.current) {
+      clearTimeout(streamIntervalRef.current);
+      streamIntervalRef.current = null;
+    }
+
     setIsStreaming(true);
-    setStreamingMessage('');
+    setStreamingMessage(fullMessage || '');
 
-    const words = fullMessage.split(' ');
-    let currentIndex = 0;
+    streamIntervalRef.current = setTimeout(() => {
+      streamIntervalRef.current = null;
+      setIsStreaming(false);
+      setStreamingMessage('');
+      if (callback) callback();
+    }, 220);
 
-    const typeInterval = setInterval(() => {
-      if (currentIndex < words.length) {
-        setStreamingMessage(prev => {
-          const newText = prev + (currentIndex > 0 ? ' ' : '') + words[currentIndex];
-          return newText;
-        });
-        currentIndex++;
-      } else {
-        clearInterval(typeInterval);
-        setIsStreaming(false);
-        setStreamingMessage('');
-        if (callback) callback();
+    return () => {
+      if (streamIntervalRef.current) {
+        clearTimeout(streamIntervalRef.current);
+        streamIntervalRef.current = null;
       }
-    }, 30); // Speed of typing (30ms per word for smooth effect)
+    };
+  }, []);
 
-    return () => clearInterval(typeInterval);
+  useEffect(() => {
+    return () => {
+      if (streamIntervalRef.current) {
+        clearTimeout(streamIntervalRef.current);
+        streamIntervalRef.current = null;
+      }
+    };
   }, []);
 
   const sendMessage = async () => {
@@ -393,20 +407,19 @@ const ChatPage = () => {
     navigate('/settings');
   };
 
-  // Collect all citations from messages in the current chat
+  // Collect all citations from the selected chat conversation
   const getAllCitations = () => {
     const citationsMap = new Map();
 
     messages.forEach((message) => {
       if (message.citations && message.citations.length > 0) {
         message.citations.forEach((citation) => {
-          // Use document_id as key to avoid duplicates
-          const key = citation.document_id || citation.id;
+          const key = `${citation.document_id || citation.id}-${citation.message_id || message.id}`;
           if (!citationsMap.has(key)) {
             citationsMap.set(key, {
               ...citation,
               messageId: message.id,
-              messageContent: message.content.substring(0, 100) + '...',
+              messageContent: (message.content || '').substring(0, 100) + '...',
             });
           }
         });
@@ -448,6 +461,16 @@ const ChatPage = () => {
                   _hover={{ bg: 'accent.600' }}
                 >
                   New Chat
+                </Button>
+
+                <Button
+                  leftIcon={<FiActivity />}
+                  variant="outline"
+                  colorScheme="accent"
+                  onClick={() => navigate('/chat/metrics')}
+                  w="full"
+                >
+                  View Metrics
                 </Button>
 
                 <Divider borderColor="primary.700" />
@@ -675,7 +698,7 @@ const ChatPage = () => {
                       </Flex>
                     ) : (
                       <VStack spacing={4} align="stretch">
-                        {messages.map((message, index) => (
+                        {messages.map((message) => (
                           <Box key={message.id}>
                             <HStack align="start" spacing={3}>
                               <Avatar
@@ -705,9 +728,55 @@ const ChatPage = () => {
                                     '& p:last-child': { marginBottom: 0 }
                                   }}
                                 >
-                                  <Text whiteSpace="pre-wrap" color="gray.100" lineHeight="1.6">
-                                    {message.content}
-                                  </Text>
+                                  {message.role === 'assistant' ? (
+                                    <Box
+                                      color="gray.100"
+                                      lineHeight="1.6"
+                                      sx={{
+                                        '& p': { mb: 2 },
+                                        '& p:last-child': { mb: 0 },
+                                        '& ul, & ol': { pl: 5, mb: 2 },
+                                        '& li': { mb: 1 },
+                                        '& code': {
+                                          bg: 'primary.700',
+                                          px: '6px',
+                                          py: '2px',
+                                          borderRadius: '4px',
+                                          fontSize: '0.9em',
+                                        },
+                                        '& pre': {
+                                          bg: 'primary.700',
+                                          p: 3,
+                                          borderRadius: '8px',
+                                          overflowX: 'auto',
+                                          mb: 2,
+                                        },
+                                        '& a': {
+                                          color: 'accent.300',
+                                          textDecoration: 'underline',
+                                        },
+                                        '& strong': { color: 'gray.50' },
+                                        '& blockquote': {
+                                          borderLeft: '3px solid',
+                                          borderColor: 'accent.500',
+                                          pl: 3,
+                                          color: 'gray.300',
+                                          my: 2,
+                                        },
+                                      }}
+                                    >
+                                      <ReactMarkdown
+                                        remarkPlugins={[remarkGfm, remarkMath]}
+                                        rehypePlugins={[rehypeKatex]}
+                                      >
+                                        {message.content || ''}
+                                      </ReactMarkdown>
+                                    </Box>
+                                  ) : (
+                                    <Text whiteSpace="pre-wrap" color="gray.100" lineHeight="1.6">
+                                      {message.content}
+                                    </Text>
+                                  )}
                                 </Box>
 
                                 {/* Citations */}
@@ -753,8 +822,8 @@ const ChatPage = () => {
                           </Box>
                         ))}
 
-                        {/* Streaming message (typing effect) */}
-                        {isStreaming && streamingMessage && (
+                        {/* Streaming message (simple/fast) */}
+                        {isStreaming && (
                           <Box>
                             <HStack align="start" spacing={3}>
                               <Avatar
@@ -777,37 +846,11 @@ const ChatPage = () => {
                                   w="full"
                                   border="1px"
                                   borderColor="primary.600"
-                                  sx={{
-                                    '& p': { marginBottom: '0.5rem' },
-                                    '& p:last-child': { marginBottom: 0 }
-                                  }}
                                 >
-                                  <Text
-                                    whiteSpace="pre-wrap"
-                                    color="gray.100"
-                                    lineHeight="1.6"
-                                    sx={{
-                                      wordBreak: 'break-word',
-                                      overflowWrap: 'break-word'
-                                    }}
-                                  >
-                                    {streamingMessage}
-                                    <Box
-                                      as="span"
-                                      display="inline-block"
-                                      w="2px"
-                                      h="1em"
-                                      bg="accent.500"
-                                      ml={1}
-                                      animation="blink 1s infinite"
-                                      sx={{
-                                        '@keyframes blink': {
-                                          '0%, 49%': { opacity: 1 },
-                                          '50%, 100%': { opacity: 0 },
-                                        },
-                                      }}
-                                    />
-                                  </Text>
+                                  <HStack spacing={2} color="gray.300">
+                                    <Spinner size="xs" color="accent.400" />
+                                    <Text fontSize="sm">Thinking…</Text>
+                                  </HStack>
                                 </Box>
                               </VStack>
                             </HStack>

@@ -3,6 +3,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
 import './index.css';
+import 'katex/dist/katex.min.css';
 import { ChakraProvider } from "@chakra-ui/react";
 import { HashRouter } from "react-router-dom";
 import { PendingFileProvider } from './contexts/PendingFileContext';

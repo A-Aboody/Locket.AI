@@ -699,6 +699,42 @@ class ChatUpdateRequest(BaseModel):
     is_archived: Optional[bool] = None
 
 
+class RagasMetricItem(BaseModel):
+    """Single RAGAS-style metric item for dashboard cards"""
+    key: str
+    label: str
+    value: float = Field(..., ge=0.0, le=1.0)
+    description: str
+
+
+class MetricsTimePoint(BaseModel):
+    """Daily time-series point for chat quality metrics"""
+    date: str
+    accuracy: float = Field(..., ge=0.0, le=1.0)
+    sanity: float = Field(..., ge=0.0, le=1.0)
+    context_precision: float = Field(..., ge=0.0, le=1.0)
+    faithfulness: float = Field(..., ge=0.0, le=1.0)
+
+
+class ParameterBucket(BaseModel):
+    """Metric grouped by a parameter bucket (e.g. retrieval depth)"""
+    parameter: str
+    bucket: str
+    score: float = Field(..., ge=0.0, le=1.0)
+    sample_size: int = Field(..., ge=0)
+
+
+class ChatRagasMetricsResponse(BaseModel):
+    """RAGAS-style metrics payload for chat quality dashboard"""
+    generated_at: datetime
+    period_days: int
+    summary: Dict[str, int]
+    headline: Dict[str, float]
+    metrics: List[RagasMetricItem]
+    trends: List[MetricsTimePoint]
+    parameter_breakdown: List[ParameterBucket]
+
+
 # ===================================
 # Organization Schemas
 # ===================================

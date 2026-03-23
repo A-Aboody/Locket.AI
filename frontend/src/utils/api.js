@@ -307,6 +307,10 @@ export const chatsAPI = {
   // Rename a chat
   rename: (chatId, title) =>
     api.patch(`/chats/${chatId}`, { title }),
+
+  // Get RAGAS-style chat quality metrics
+  getRagasMetrics: (periodDays = 14) =>
+    api.get('/chats/metrics/ragas', { params: { period_days: periodDays } }),
 };
 
 // Organizations API

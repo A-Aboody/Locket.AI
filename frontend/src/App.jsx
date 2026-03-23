@@ -12,6 +12,7 @@ import SettingsPage from './pages/SettingsPage';
 import OrganizationSettings from './pages/OrganizationSettings';
 import OrganizationOnboardingPage from './pages/OrganizationOnboardingPage';
 import ChatPage from './pages/ChatPage';
+import ChatMetricsPage from './pages/ChatMetricsPage';
 import TrashPage from './pages/TrashPage';
 import AuthPage from './pages/AuthPage';
 import NotFoundPage from './pages/NotFoundPage';
@@ -127,6 +128,14 @@ function App() {
           element={
             <ProtectedRoute>
               <ChatPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/chat/metrics"
+          element={
+            <ProtectedRoute>
+              <ChatMetricsPage />
             </ProtectedRoute>
           }
         />

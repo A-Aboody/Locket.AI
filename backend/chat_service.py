@@ -12,6 +12,62 @@ from datetime import datetime, timezone
 import re
 
 
+FOLLOW_UP_HINTS = {
+    'that', 'this', 'it', 'those', 'these', 'them', 'he', 'she', 'they',
+    'previous', 'earlier', 'above', 'before', 'latter', 'former',
+    'our', 'we', 'us', 'team', 'project'
+}
+
+SOURCE_REQUEST_HINTS = {
+    'source', 'sources', 'citation', 'citations', 'cite', 'proof', 'reference', 'references'
+}
+
+STOP_WORDS = {
+    'the', 'a', 'an', 'and', 'or', 'but', 'is', 'are', 'was', 'were', 'of', 'to', 'in', 'for',
+    'on', 'at', 'by', 'what', 'which', 'who', 'when', 'where', 'why', 'how', 'tell', 'me', 'about',
+    'need', 'more', 'detail', 'details', 'these', 'those', 'this', 'that', 'components', 'configured', 'integrated'
+}
+
+QUERY_SYNONYMS = {
+    'hardware': ['device', 'pi', 'raspberry', 'node', 'server', 'architecture'],
+    'architecture': ['design', 'layout', 'topology', 'node', 'component'],
+    'router': ['gateway', 'network', 'pi4', 'pi-4', 'raspberry'],
+    'password': ['credential', 'login', 'username', 'auth'],
+}
+
+
+def build_query_terms(query: str) -> List[str]:
+    """Expand query into richer terms for better excerpt retrieval."""
+    tokens = [
+        token for token in re.findall(r'\w+', (query or '').lower())
+        if len(token) > 2 and token not in STOP_WORDS
+    ]
+
+    expanded = set(tokens)
+    for token in tokens:
+        for synonym in QUERY_SYNONYMS.get(token, []):
+            expanded.add(synonym)
+
+    query_lower = (query or '').lower()
+    if 'hardware architecture' in query_lower:
+        expanded.update(['hardware', 'architecture', 'node', 'server', 'pi', 'role'])
+
+    return list(expanded)
+
+
+def is_follow_up_query(query: str) -> bool:
+    """Heuristic to detect coreference / follow-up questions that need chat context."""
+    if not query:
+        return False
+    query_lower = query.lower().strip()
+    tokens = re.findall(r"\w+", query_lower)
+    if len(tokens) <= 10 and any(token in FOLLOW_UP_HINTS for token in tokens):
+        return True
+    return any(phrase in query_lower for phrase in [
+        'based on that', 'from that', 'from the previous', 'continue', 'elaborate', 'more details'
+    ])
+
+
 def get_relevant_documents(
     db: Session,
     user_id: int,
@@ -38,13 +94,26 @@ def get_relevant_documents(
     # Build query with conversation context
     enhanced_query = query
     if conversation_history:
-        # Include last 2 user messages for context
+        # Include last user/assistant turns for context persistence
         recent_user_messages = [
             msg['content'] for msg in conversation_history[-4:]
             if msg['role'] == 'user'
         ][-2:]
-        if recent_user_messages:
-            enhanced_query = f"{' '.join(recent_user_messages)} {query}"
+
+        recent_assistant_messages = [
+            msg['content'] for msg in conversation_history[-4:]
+            if msg['role'] == 'assistant'
+        ][-1:]
+
+        context_chunks = []
+        if is_follow_up_query(query):
+            context_chunks.extend(recent_assistant_messages)
+            context_chunks.extend(recent_user_messages)
+        else:
+            context_chunks.extend(recent_user_messages[-1:])
+
+        if context_chunks:
+            enhanced_query = f"{' '.join(context_chunks)} {query}"
 
     # Generate query embedding
     query_embedding = search_service.generate_embedding(enhanced_query)
@@ -88,7 +157,7 @@ def get_relevant_documents(
         scores = search_service.calculate_hybrid_score(
             query_embedding=query_embedding,
             doc_embedding=doc.embedding,
-            query=query,
+            query=enhanced_query,
             doc_content=doc.content or "",
             doc_filename=doc.filename
         )
@@ -96,13 +165,77 @@ def get_relevant_documents(
         relevance_score = scores['total']
 
         # Extract relevant excerpt
-        excerpt = extract_relevant_excerpt(query, doc.content, max_length=300)
+        excerpt = extract_relevant_excerpt(enhanced_query, doc.content, max_length=300)
 
         scored_documents.append((doc, relevance_score, excerpt))
 
     # Sort by relevance and return top results
     scored_documents.sort(key=lambda x: x[1], reverse=True)
     return scored_documents[:limit]
+
+
+def is_doc_relevant_to_query(query: str, excerpt: str, score: float) -> bool:
+    """Filter citations to only keep highly relevant source snippets for this query."""
+    if score >= 0.45:
+        return True
+    if is_follow_up_query(query) and score >= 0.12:
+        return True
+    if score < 0.12:
+        return False
+
+    query_terms = set(build_query_terms(query))
+    if not query_terms:
+        return score >= 0.2
+
+    excerpt_terms = set(re.findall(r'\w+', (excerpt or '').lower()))
+    overlap = len(query_terms.intersection(excerpt_terms))
+    return overlap >= 1 and score >= 0.2
+
+
+def boost_relevance_for_direct_match(query: str, filename: str, excerpt: str, score: float) -> float:
+    """Boost score when query terms directly match filename/excerpt (better UX for exact lookups)."""
+    query_terms = [
+        term for term in re.findall(r'\w+', (query or '').lower())
+        if len(term) > 2 and term not in STOP_WORDS
+    ]
+
+    if not query_terms:
+        return float(min(1.0, max(0.0, score)))
+
+    haystack = f"{(filename or '').lower()} {(excerpt or '').lower()}"
+    overlap = sum(1 for term in set(query_terms) if term in haystack)
+    overlap_ratio = overlap / max(1, len(set(query_terms)))
+
+    bonus = 0.0
+    bonus += 0.25 * overlap_ratio
+
+    if ('password' in query.lower()) and ('password' in haystack):
+        bonus += 0.2
+
+    if overlap >= 2:
+        bonus += 0.1
+
+    return float(min(1.0, max(0.0, score + bonus)))
+
+
+def user_requested_sources(query: str) -> bool:
+    """True when user explicitly asks for citations/sources."""
+    if not query:
+        return False
+    query_lower = query.lower()
+    return any(hint in query_lower for hint in SOURCE_REQUEST_HINTS) or any(
+        phrase in query_lower for phrase in ['show me the source', 'where did you get this', 'which document']
+    )
+
+
+def should_attach_citations(query: str, relevant_docs: List[Tuple[models.Document, float, str]]) -> bool:
+    """Attach citations only for direct doc-backed answers or explicit user request."""
+    if not relevant_docs:
+        return False
+    if user_requested_sources(query):
+        return True
+    best_score = max(score for _, score, _ in relevant_docs)
+    return best_score >= 0.38
 
 
 def extract_relevant_excerpt(query: str, content: str, max_length: int = 300) -> str:
@@ -121,49 +254,64 @@ def extract_relevant_excerpt(query: str, content: str, max_length: int = 300) ->
         return ""
 
     # Normalize text
-    content = content.strip()
-    query_lower = query.lower()
+    content = re.sub(r'\s+', ' ', content.strip())
+    if not content:
+        return ""
 
-    # Split into sentences
-    sentences = re.split(r'[.!?]+', content)
-    sentences = [s.strip() for s in sentences if len(s.strip()) > 20]
+    query_terms = set(build_query_terms(query))
 
-    if not sentences:
-        return content[:max_length] + "..." if len(content) > max_length else content
+    # Build candidate chunks by paragraph-ish boundaries and lightweight sliding windows
+    raw_parts = [p.strip() for p in re.split(r'\n{2,}|\.\s+', content) if len(p.strip()) > 25]
+    candidates = raw_parts[:]
 
-    # Find sentences containing query keywords
-    query_words = set(re.findall(r'\w+', query_lower))
-    query_words = {w for w in query_words if len(w) > 3}  # Filter short words
+    if len(content) > 600:
+        step = 320
+        window = 680
+        for start in range(0, min(len(content), 3000), step):
+            chunk = content[start:start + window].strip()
+            if len(chunk) > 60:
+                candidates.append(chunk)
 
-    scored_sentences = []
-    for sentence in sentences:
-        sentence_lower = sentence.lower()
-        # Count keyword matches
-        matches = sum(1 for word in query_words if word in sentence_lower)
-        scored_sentences.append((sentence, matches))
+    if not candidates:
+        return content[:max_length] + ("..." if len(content) > max_length else "")
 
-    # Sort by relevance
-    scored_sentences.sort(key=lambda x: x[1], reverse=True)
+    scored = []
+    for chunk in candidates:
+        chunk_lower = chunk.lower()
+        overlap = sum(1 for term in query_terms if term in chunk_lower)
+        overlap_ratio = overlap / max(1, len(query_terms))
 
-    # Build excerpt from top sentences
+        keyword_score = search_service.keyword_match_score(query, chunk)
+        fuzzy_score = search_service.fuzzy_match_score(query, chunk)
+        score = (0.55 * overlap_ratio) + (0.3 * keyword_score) + (0.15 * fuzzy_score)
+
+        # Small bonus for chunks that include concrete config-ish details
+        if any(k in chunk_lower for k in ['ip', 'hostname', 'password', 'username', 'port', 'node']):
+            score += 0.05
+
+        scored.append((chunk, score))
+
+    scored.sort(key=lambda item: item[1], reverse=True)
+
     excerpt_parts = []
     current_length = 0
-
-    for sentence, score in scored_sentences[:3]:  # Take top 3 sentences
-        if current_length + len(sentence) > max_length:
+    for chunk, _ in scored[:4]:
+        cleaned = chunk.strip(' .')
+        if not cleaned:
+            continue
+        if current_length + len(cleaned) > max_length:
+            continue
+        excerpt_parts.append(cleaned)
+        current_length += len(cleaned)
+        if current_length >= int(max_length * 0.8):
             break
-        excerpt_parts.append(sentence)
-        current_length += len(sentence)
 
     if not excerpt_parts:
-        # Fallback to first sentence or content preview
-        return sentences[0] if sentences else content[:max_length]
+        best = scored[0][0]
+        return best[:max_length] + ("..." if len(best) > max_length else "")
 
     excerpt = ". ".join(excerpt_parts)
-    if len(excerpt) < len(content):
-        excerpt += "..."
-
-    return excerpt
+    return excerpt + ("..." if len(excerpt) < len(content) else "")
 
 
 def is_greeting(query: str) -> bool:
@@ -296,17 +444,44 @@ def generate_contextual_response(
     else:
         response_parts.append(f"I found information in {doc_count} documents that might help:\n")
 
-    # Main content from excerpts - be more intelligent about presentation
-    for i, (doc, score, excerpt) in enumerate(relevant_docs[:3], 1):  # Top 3 docs
-        if excerpt:
-            # Clean up the excerpt for better readability
-            cleaned_excerpt = excerpt.strip()
+    # Smarter evidence extraction from top excerpts
+    query_terms = set(build_query_terms(query))
+    evidence = []
+    for doc, score, excerpt in relevant_docs[:4]:
+        snippets = re.split(r'(?<=[.!?])\s+|\s*;\s*', excerpt or '')
+        for snippet in snippets:
+            s = snippet.strip()
+            if len(s) < 30:
+                continue
+            s_lower = s.lower()
+            overlap = sum(1 for term in query_terms if term in s_lower)
+            if overlap == 0 and score < 0.5:
+                continue
+            evidence.append((s, overlap, score, doc.filename))
 
-            # Add conversational markers for multiple documents
-            if doc_count > 1:
-                response_parts.append(f"\n**From {doc.filename}:**\n{cleaned_excerpt}\n")
-            else:
-                response_parts.append(f"\n{cleaned_excerpt}\n")
+    evidence.sort(key=lambda item: (item[1], item[2], len(item[0])), reverse=True)
+    picked = []
+    seen = set()
+    for snippet, _, _, filename in evidence:
+        key = snippet.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        picked.append((snippet, filename))
+        if len(picked) >= 3:
+            break
+
+    if picked:
+        if len(picked) == 1:
+            response_parts.append(f"\n{picked[0][0]}\n")
+        else:
+            response_parts.append("\nBased on your documents:\n")
+            for snippet, filename in picked:
+                response_parts.append(f"• {snippet} _(from {filename})_")
+    else:
+        # Fallback to top excerpt when sentence-level extraction fails
+        top_doc, _, top_excerpt = relevant_docs[0]
+        response_parts.append(f"\n{(top_excerpt or '').strip()} _(from {top_doc.filename})_\n")
 
     # Add helpful conclusion based on context
     if doc_count > 3:
