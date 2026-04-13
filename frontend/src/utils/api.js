@@ -287,7 +287,7 @@ export const chatsAPI = {
 
   // Send a message in a chat
   sendMessage: (chatId, content) =>
-    api.post(`/chats/${chatId}/messages`, { content }),
+    api.post(`/chats/${chatId}/messages`, { content }, { timeout: 300000 }),
 
   // Update chat (title, archive status)
   update: (chatId, updateData) =>
