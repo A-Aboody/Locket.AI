@@ -309,7 +309,8 @@ def health_check(db: Session = Depends(get_db)):
     """Health check endpoint with system status"""
     try:
         # Test database connection
-        db.execute("SELECT 1")
+        from sqlalchemy import text
+        db.execute(text("SELECT 1"))
         database_healthy = True
     except Exception as e:
         logger.error(f"Database health check failed: {e}")
