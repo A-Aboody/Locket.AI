@@ -374,6 +374,21 @@ async def register(
                 detail=f"Failed to create user account: {str(e)}"
             )
 
+        # Airgapped mode: auto-verify without sending email
+        if config.AIRGAPPED_MODE:
+            crud.verify_user_email(db, new_user.id)
+            db.refresh(new_user)
+            logger.info(f"Airgapped mode: auto-verified user {new_user.id}")
+            access_token = auth.create_access_token(
+                data={"sub": str(new_user.id), "role": new_user.role.value, "verified": True}
+            )
+            return {
+                "access_token": access_token,
+                "user": new_user,
+                "requires_verification": False,
+                "message": "Registration successful. Account verified automatically."
+            }
+
         # Generate verification code
         verification_code = verification_service.create_verification_code(new_user.id, new_user.email)
 

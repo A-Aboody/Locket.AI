@@ -79,6 +79,10 @@ class Config:
     LANDING_PAGE_URL = os.getenv("LANDING_PAGE_URL", "https://locket.ai")
     DEEP_LINK_PROTOCOL = os.getenv("DEEP_LINK_PROTOCOL", "locket")
 
+    # Airgapped / demo mode — skip email verification on registration
+    AIRGAPPED_MODE = os.getenv("AIRGAPPED_MODE", "false").lower() == "true"
+    print(f"[CONFIG] Airgapped mode: {AIRGAPPED_MODE}")
+
     # OpenRouter AI Settings
     OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", None)
     OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct:free")
