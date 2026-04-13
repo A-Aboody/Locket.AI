@@ -1,0 +1,62 @@
+# Pi Deployment Docker Compose
+# Runs ONLY postgres + backend on Pi5-Main (192.168.200.10)
+# Ollama runs natively on Pi5-AI (192.168.200.20)
+# Frontend runs via nginx on Pi4-Web (192.168.200.30)
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: doc-retrieval-postgres-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: doc_user
+      POSTGRES_PASSWORD: seniordesign4
+      POSTGRES_DB: document_retrieval
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+    networks:
+      - doc-retrieval-network-prod
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U doc_user -d document_retrieval"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: doc-retrieval-backend-prod
+    restart: unless-stopped
+    env_file:
+      - .env.pi
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./backend/uploads:/app/uploads
+      - model_cache_prod:/root/.cache/torch/sentence_transformers
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - doc-retrieval-network-prod
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+      start_period: 90s
+
+volumes:
+  postgres_data_prod:
+    name: doc-retrieval-postgres-data-prod
+  model_cache_prod:
+    name: doc-retrieval-model-cache-prod
+
+networks:
+  doc-retrieval-network-prod:
+    name: doc-retrieval-network-prod
+    driver: bridge
